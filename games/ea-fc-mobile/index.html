@@ -82,7 +82,6 @@ const ASSETS = {
   bg:   { src:'assets/bg_stadium_goal.png', key:false },
   keeper:{ src:'assets/keeper.png', key:false },   // art pre-cut to transparent at build time
   ball: { src:'assets/ball.png', key:false },
-  feet: { src:'assets/striker_feet.png', key:false },
   net:  { src:'assets/fx_netripple.png', key:false },
 };
 function keyMagenta(img){
@@ -409,8 +408,9 @@ function update(dt){
     g.ball.s = 1 - 0.58 * tt;
     g.ball.spin += dt * 20;
     if (tt >= 1){
-      const a2 = g.anim; g.anim = null;
+      const a2 = g.anim;                 // keep g.anim set — resolve*() reads g.anim.to
       if (a2.side === 'P') resolveShot(a2.out); else resolveSave(a2.out);
+      g.anim = null;
     }
   }
   if (g.state === 'saveWait'){
@@ -503,16 +503,8 @@ function drawKeeper(){
   }
   ctx.restore();
 }
-// The striker art (striker_feet.png) contains its own ball; these are that ball's
-// centre as a fraction of the image, so we can pin it to the penalty spot.
-const FEET_BALL_FX = 0.701, FEET_BALL_FY = 0.755;
 function drawBallAndFeet(){
-  const feet = ASSETS.feet.img;
-  if (g.state === 'shootAim' && feet){
-    // Draw the striker so ITS ball sits on the penalty spot, and hide the plain ball
-    const H = 200, W = H * (feet.width / feet.height);
-    ctx.drawImage(feet, BALL_HOME.x - FEET_BALL_FX * W, BALL_HOME.y - FEET_BALL_FY * H, W, H);
-  } else if (g.ball.vis){
+  if (g.ball.vis){
     const img = ASSETS.ball.img, r = 27 * g.ball.s;
     ctx.save();
     ctx.translate(g.ball.x, g.ball.y);
