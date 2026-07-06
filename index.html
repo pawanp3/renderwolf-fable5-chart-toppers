@@ -35,6 +35,13 @@
     -webkit-text-fill-color:transparent; }
   .tag { color:var(--dim); font-size:14px; margin-top:8px; line-height:1.5; }
   .tag b { color:var(--txt); font-weight:700; }
+  .rw-credit { display:inline-flex; align-items:center; gap:6px; margin-top:16px; font-size:12.5px;
+    font-weight:700; color:var(--txt); text-decoration:none; background:var(--card);
+    border:1px solid var(--line); border-radius:999px; padding:7px 15px;
+    transition:border-color .12s ease, transform .12s ease; }
+  .rw-credit b { color:var(--accent2); }
+  .rw-credit:active { transform:scale(.96); }
+  @media (hover:hover){ .rw-credit:hover { border-color:rgba(56,230,160,.55); } }
   .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:14px; }
   a.card { display:flex; flex-direction:column; text-decoration:none; color:inherit;
     background:linear-gradient(180deg,var(--card2),var(--card)); border:1px solid var(--line);
@@ -60,6 +67,8 @@
   .qrtext b { color:var(--txt); }
   .credit { font-size:12px; line-height:1.7; }
   .credit b { color:var(--txt); }
+  .credit a { color:inherit; text-decoration:underline; text-underline-offset:2px; }
+  .credit a b { color:var(--accent2); }
 </style>
 </head>
 <body>
@@ -67,6 +76,7 @@
   <header>
     <h1>🕹️ Chart Toppers Arcade</h1>
     <p class="tag">Playable web remakes of the <b>top free iOS games</b> — original names &amp; AI-made art.<br>Tap a game. Best on a phone, portrait.</p>
+    <a class="rw-credit" href="https://renderwolf.ai" target="_blank" rel="noopener">✨ Images made with <b>Renderwolf</b></a>
   </header>
   <div class="grid" id="grid"></div>
   <footer>
@@ -75,7 +85,7 @@
       <div class="qrtext"><b>On a computer?</b><br>Scan to open the arcade on your phone — these play best in portrait.</div>
     </div>
     <p class="credit">15 playable prototypes · mechanics-only remakes of chart-topping iOS games<br>
-    Original names &amp; art · made with <b>Fable&nbsp;5</b> · <b>Renderwolf</b></p>
+    Original names &amp; art · made with <b>Fable&nbsp;5</b> · images by <a href="https://renderwolf.ai" target="_blank" rel="noopener"><b>Renderwolf</b></a></p>
   </footer>
 </div>
 <script>
