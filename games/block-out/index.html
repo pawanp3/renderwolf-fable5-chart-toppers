@@ -1,0 +1,662 @@
+<!-- Inspired by "Block Out! - Color Sort Puzzle" (App Store chart) — prototype working title: Slide & Exit -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Slide &amp; Exit</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: linear-gradient(180deg, #8fd3ff 0%, #bfe9ff 45%, #dff4ff 100%);
+    background-image: url(assets/bg-board.png);
+    background-size: cover;
+    background-position: center;
+    color: #1b3a5c;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  header {
+    padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 6px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  #hudRow { display: flex; justify-content: space-between; align-items: center; }
+  .hudPill {
+    background: rgba(255,255,255,.85); border-radius: 999px; padding: 6px 14px;
+    font-weight: 800; font-size: 15px; box-shadow: 0 2px 6px rgba(20,60,120,.18);
+  }
+  #timerWrap {
+    height: 16px; background: rgba(255,255,255,.6); border-radius: 999px;
+    overflow: hidden; box-shadow: inset 0 1px 3px rgba(20,60,120,.25);
+  }
+  #timerBar {
+    height: 100%; width: 100%; border-radius: 999px;
+    background: linear-gradient(90deg, #35c56f, #7ee08f);
+    transition: background .3s;
+  }
+  #timerBar.low { background: linear-gradient(90deg, #ef4444, #f97316); animation: pulse .5s infinite alternate; }
+  @keyframes pulse { from { filter: brightness(1); } to { filter: brightness(1.35); } }
+  main { flex: 1; position: relative; min-height: 0; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+  footer {
+    padding: 8px 14px calc(env(safe-area-inset-bottom, 0px) + 12px);
+    display: flex; justify-content: center;
+  }
+  button {
+    font-family: inherit; border: none; cursor: pointer; font-weight: 800;
+    border-radius: 999px; color: #fff;
+  }
+  #restartBtn {
+    min-height: 48px; padding: 10px 34px; font-size: 17px;
+    background: linear-gradient(180deg, #ffb547, #f38a1d);
+    box-shadow: 0 4px 0 #c96a08, 0 6px 12px rgba(20,60,120,.25);
+  }
+  #restartBtn:active { transform: translateY(3px); box-shadow: 0 1px 0 #c96a08; }
+  .overlay {
+    position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 18px; text-align: center; padding: 24px;
+    background: rgba(18, 48, 92, .45); backdrop-filter: blur(4px); z-index: 10;
+  }
+  .card {
+    background: rgba(255,255,255,.96); border-radius: 28px; padding: 30px 26px;
+    max-width: 340px; width: 100%; box-shadow: 0 18px 40px rgba(10,30,70,.35);
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+  }
+  .card h1 { font-size: 34px; color: #164a8a; letter-spacing: -.5px; }
+  .card h2 { font-size: 28px; color: #164a8a; }
+  .card p { font-size: 16px; color: #47617f; line-height: 1.45; }
+  .bigScore { font-size: 40px; font-weight: 900; color: #f38a1d; }
+  .cta {
+    min-height: 54px; padding: 14px 44px; font-size: 20px;
+    background: linear-gradient(180deg, #43c96e, #21a453);
+    box-shadow: 0 5px 0 #157a3a, 0 8px 16px rgba(20,60,120,.3);
+    animation: bob 1.2s ease-in-out infinite;
+  }
+  .cta:active { transform: translateY(4px) scale(.98); box-shadow: 0 1px 0 #157a3a; animation: none; }
+  @keyframes bob { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+  #titleIcon {
+    width: 108px; height: 108px; border-radius: 26px; box-shadow: 0 8px 20px rgba(10,30,70,.35);
+    animation: floaty 2.4s ease-in-out infinite;
+  }
+  @keyframes floaty { 0%,100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-8px) rotate(2deg); } }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<a id="arcadeBack" href="../../" aria-label="Back to arcade" style="position:fixed;top:calc(8px + env(safe-area-inset-top));left:calc(8px + env(safe-area-inset-left));z-index:99999;display:flex;align-items:center;gap:4px;height:32px;padding:0 12px 0 8px;border-radius:999px;background:rgba(8,12,26,.62);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.18);color:#fff;font:800 12.5px -apple-system,BlinkMacSystemFont,sans-serif;text-decoration:none;-webkit-tap-highlight-color:transparent;">‹ Arcade</a>
+<div id="app">
+  <header>
+    <div id="hudRow">
+      <span class="hudPill" id="levelPill">Level 1</span>
+      <span class="hudPill" id="scorePill">Score 0</span>
+    </div>
+    <div id="timerWrap"><div id="timerBar"></div></div>
+  </header>
+  <main><canvas id="game"></canvas></main>
+  <footer><button id="restartBtn">Restart Level</button></footer>
+</div>
+
+<div class="overlay" id="titleOverlay">
+  <div class="card">
+    <img id="titleIcon" src="assets/icon.png" alt="">
+    <h1>Slide &amp; Exit</h1>
+    <p>Swipe blocks to their matching color gates.<br>Clear the board before time runs out!</p>
+    <button class="cta" id="startBtn">PLAY</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="clearOverlay">
+  <div class="card">
+    <h2 id="clearTitle">Level Clear!</h2>
+    <p id="clearBonus"></p>
+    <div class="bigScore" id="clearScore"></div>
+    <button class="cta" id="nextBtn">NEXT LEVEL</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="loseOverlay">
+  <div class="card">
+    <h2>Time's Up!</h2>
+    <p id="loseText">The blocks didn't make it out.</p>
+    <button class="cta" id="retryBtn">TRY AGAIN</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="winOverlay">
+  <div class="card">
+    <h2>You Cleared It All!</h2>
+    <p>Final score</p>
+    <div class="bigScore" id="winScore"></div>
+    <button class="cta" id="againBtn">PLAY AGAIN</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+// ============================== constants ==============================
+const W = 6, H = 8, TIME_LIMIT = 60;
+const COLOR_NAMES = ['red', 'blue', 'green', 'yellow', 'purple'];
+const COLORS = ['#e8433f', '#3fa9f5', '#41b649', '#ffc93c', '#9b59d0'];
+const COLORS_DARK = ['#a92622', '#1e77bd', '#268a2e', '#d19a12', '#6f3aa0'];
+
+// Levels verified solvable by search (see build notes). c: 0 red 1 blue 2 green 3 yellow 4 purple
+const LEVELS = [
+  { gates: [{s:'T',i:2,c:0},{s:'R',i:3,c:1},{s:'B',i:3,c:2},{s:'L',i:5,c:3}],
+    blocks: [{c:0,x:2,y:4},{c:1,x:4,y:3},{c:2,x:3,y:5},{c:3,x:2,y:5}] },
+  { gates: [{s:'T',i:1,c:1},{s:'T',i:4,c:0},{s:'L',i:2,c:2},{s:'R',i:5,c:4},{s:'B',i:2,c:3},{s:'B',i:5,c:2}],
+    blocks: [{c:1,x:1,y:3},{c:0,x:4,y:2},{c:2,x:2,y:2},{c:4,x:3,y:5},{c:3,x:2,y:6},{c:2,x:5,y:4}] },
+  { gates: [{s:'T',i:0,c:0},{s:'T',i:3,c:3},{s:'R',i:1,c:2},{s:'R',i:6,c:1},{s:'B',i:4,c:4},{s:'L',i:4,c:0}],
+    blocks: [{c:0,x:0,y:2},{c:3,x:3,y:1},{c:2,x:2,y:1},{c:4,x:4,y:6},{c:1,x:2,y:6},{c:0,x:3,y:4},{c:3,x:3,y:5},{c:2,x:0,y:1}] },
+  { gates: [{s:'T',i:2,c:4},{s:'T',i:5,c:2},{s:'R',i:3,c:0},{s:'L',i:1,c:3},{s:'L',i:6,c:1},{s:'B',i:0,c:2},{s:'B',i:4,c:3}],
+    blocks: [{c:4,x:2,y:3},{c:2,x:5,y:2},{c:0,x:1,y:3},{c:3,x:3,y:1},{c:1,x:4,y:6},{c:2,x:0,y:5},{c:3,x:4,y:5},{c:4,x:2,y:6},{c:0,x:4,y:3},{c:1,x:1,y:6}] },
+  { gates: [{s:'T',i:1,c:0},{s:'T',i:4,c:1},{s:'R',i:2,c:3},{s:'R',i:5,c:2},{s:'B',i:2,c:4},{s:'B',i:5,c:0},{s:'L',i:3,c:2},{s:'L',i:6,c:4}],
+    blocks: [{c:0,x:1,y:2},{c:1,x:4,y:2},{c:3,x:3,y:2},{c:2,x:4,y:5},{c:4,x:2,y:4},{c:0,x:5,y:6},{c:2,x:2,y:3},{c:4,x:3,y:6},{c:3,x:1,y:5},{c:1,x:4,y:1},{c:0,x:1,y:1},{c:2,x:5,y:3}] },
+];
+
+// ============================== asset loading ==============================
+const sprites = { blocks: null, gate: null, burst: null }; // canvases (or null -> fallback shapes)
+let blockSlices = null;   // [{sx,sy,sw,sh}] x5 into sprites.blocks
+let gateTinted = null;    // per-color tinted gate canvases
+
+function loadImage(src) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+// Magenta-key an image: standard rule + adaptive corner-sampled background removal.
+function keyImage(img) {
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0);
+  const id = g.getImageData(0, 0, c.width, c.height);
+  const d = id.data;
+  // sample 4 corners for the actual generated background color
+  let br = 0, bg = 0, bb = 0;
+  const corners = [0, (c.width - 1) * 4, (c.height - 1) * c.width * 4, ((c.height * c.width) - 1) * 4];
+  for (const o of corners) { br += d[o]; bg += d[o + 1]; bb += d[o + 2]; }
+  br /= 4; bg /= 4; bb /= 4;
+  const bgIsMagentaish = br > 140 && bb > 80 && bg < 150;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], gr = d[i + 1], b = d[i + 2];
+    let out = (r > 200 && b > 200 && gr < 120); // guide rule
+    if (!out && bgIsMagentaish) {
+      const dr = r - br, dg = gr - bg, db = b - bb;
+      if (dr * dr + dg * dg + db * db < 8100) out = true; // within 90 of sampled bg
+    }
+    if (out) d[i + 3] = 0;
+  }
+  g.putImageData(id, 0, 0);
+  return c;
+}
+
+// Find the 5 block sprites in the keyed sheet by scanning alpha columns.
+function sliceBlockSheet(cv) {
+  const g = cv.getContext('2d', { willReadFrequently: true });
+  const d = g.getImageData(0, 0, cv.width, cv.height).data;
+  const colHas = new Array(cv.width).fill(false);
+  let top = cv.height, bot = 0;
+  for (let y = 0; y < cv.height; y++) {
+    for (let x = 0; x < cv.width; x++) {
+      if (d[(y * cv.width + x) * 4 + 3] > 10) {
+        colHas[x] = true;
+        if (y < top) top = y;
+        if (y > bot) bot = y;
+      }
+    }
+  }
+  if (top >= bot) return null;
+  const runs = [];
+  let start = -1;
+  for (let x = 0; x <= cv.width; x++) {
+    const has = x < cv.width && colHas[x];
+    if (has && start < 0) start = x;
+    if (!has && start >= 0) {
+      if (x - start > 8) runs.push([start, x]);
+      start = -1;
+    }
+  }
+  const slices = [];
+  if (runs.length === 5) {
+    for (const [a, b] of runs) slices.push({ sx: a, sy: top, sw: b - a, sh: bot - top + 1 });
+  } else {
+    const l = runs.length ? runs[0][0] : 0, r = runs.length ? runs[runs.length - 1][1] : cv.width;
+    const w5 = (r - l) / 5;
+    for (let i = 0; i < 5; i++) slices.push({ sx: l + i * w5, sy: top, sw: w5, sh: bot - top + 1 });
+  }
+  return slices;
+}
+
+function tintGate(cv) {
+  return COLORS.map(col => {
+    const t = document.createElement('canvas');
+    t.width = cv.width; t.height = cv.height;
+    const g = t.getContext('2d');
+    g.drawImage(cv, 0, 0);
+    g.globalCompositeOperation = 'source-atop';
+    g.globalAlpha = 0.5;
+    g.fillStyle = col;
+    g.fillRect(0, 0, t.width, t.height);
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
+    return t;
+  });
+}
+
+async function preload() {
+  const [bl, ga, bu] = await Promise.all([
+    loadImage('assets/block-tiles.png'),
+    loadImage('assets/gate.png'),
+    loadImage('assets/pop-burst.png'),
+  ]);
+  if (bl) { sprites.blocks = keyImage(bl); blockSlices = sliceBlockSheet(sprites.blocks); }
+  if (ga) { sprites.gate = keyImage(ga); gateTinted = tintGate(sprites.gate); }
+  if (bu) { sprites.burst = keyImage(bu); }
+}
+
+// ============================== game logic ==============================
+function gateFor(gates, x, y, dx, dy) {
+  if (dy === -1 && y === 0) return gates.find(g => g.s === 'T' && g.i === x) || null;
+  if (dy === 1 && y === H - 1) return gates.find(g => g.s === 'B' && g.i === x) || null;
+  if (dx === -1 && x === 0) return gates.find(g => g.s === 'L' && g.i === y) || null;
+  if (dx === 1 && x === W - 1) return gates.find(g => g.s === 'R' && g.i === y) || null;
+  return null;
+}
+
+function slideDest(blocks, block, dx, dy, gates) {
+  let x = block.x, y = block.y;
+  for (;;) {
+    const nx = x + dx, ny = y + dy;
+    if (nx < 0 || nx >= W || ny < 0 || ny >= H) {
+      const g = gateFor(gates, x, y, dx, dy);
+      if (g && g.c === block.c) return { x, y, exit: true };
+      return { x, y, exit: false };
+    }
+    let hit = false;
+    for (const b of blocks) {
+      if (b !== block && !b.exiting && b.x === nx && b.y === ny) { hit = true; break; }
+    }
+    if (hit) return { x, y, exit: false };
+    x = nx; y = ny;
+  }
+}
+
+// ============================== state ==============================
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const timerBar = document.getElementById('timerBar');
+const levelPill = document.getElementById('levelPill');
+const scorePill = document.getElementById('scorePill');
+
+let state = 'title'; // title | playing | clear | lose | win
+let levelIdx = 0, score = 0, timeLeft = TIME_LIMIT;
+let blocks = [], gates = [];
+let particles = [], bursts = [], floaters = [];
+let grabbed = null, grabX = 0, grabY = 0, swipeUsed = false;
+let vw = 0, vh = 0, cell = 0, boardX = 0, boardY = 0;
+let lastT = 0, elapsed = 0;
+
+function startLevel(i) {
+  levelIdx = i;
+  const L = LEVELS[i];
+  gates = L.gates;
+  blocks = L.blocks.map(b => ({ c: b.c, x: b.x, y: b.y, vx: b.x, vy: b.y, exiting: false, dead: false, bumpT: 0, bdx: 0, bdy: 0, phase: Math.random() * 6.28 }));
+  particles.length = 0; bursts.length = 0; floaters.length = 0;
+  timeLeft = TIME_LIMIT;
+  grabbed = null;
+  state = 'playing';
+  levelPill.textContent = 'Level ' + (i + 1);
+  scorePill.textContent = 'Score ' + score;
+  showOverlay(null);
+}
+
+function showOverlay(id) {
+  for (const o of ['titleOverlay', 'clearOverlay', 'loseOverlay', 'winOverlay'])
+    document.getElementById(o).classList.toggle('hidden', o !== id);
+}
+
+// ============================== layout ==============================
+function resize() {
+  const main = canvas.parentElement;
+  const r = main.getBoundingClientRect();
+  vw = r.width; vh = r.height;
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  canvas.width = Math.round(vw * dpr);
+  canvas.height = Math.round(vh * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cell = Math.floor(Math.min((vw - 16) / (W + 2), (vh - 16) / (H + 2)));
+  boardX = (vw - cell * W) / 2;
+  boardY = (vh - cell * H) / 2;
+}
+window.addEventListener('resize', resize);
+
+const cx = gx => boardX + gx * cell + cell / 2;
+const cy = gy => boardY + gy * cell + cell / 2;
+
+function gateCell(g) { // grid coords of the virtual cell a gate occupies (outside board)
+  if (g.s === 'T') return { x: g.i, y: -1 };
+  if (g.s === 'B') return { x: g.i, y: H };
+  if (g.s === 'L') return { x: -1, y: g.i };
+  return { x: W, y: g.i };
+}
+
+// ============================== input ==============================
+canvas.addEventListener('pointerdown', e => {
+  if (state !== 'playing') return;
+  const r = canvas.getBoundingClientRect();
+  const px = e.clientX - r.left, py = e.clientY - r.top;
+  const gx = Math.floor((px - boardX) / cell), gy = Math.floor((py - boardY) / cell);
+  grabbed = null;
+  for (const b of blocks) {
+    if (!b.exiting && !b.dead && b.x === gx && b.y === gy) { grabbed = b; break; }
+  }
+  grabX = px; grabY = py; swipeUsed = false;
+  e.preventDefault();
+});
+
+canvas.addEventListener('pointermove', e => {
+  if (state !== 'playing' || !grabbed || swipeUsed) return;
+  const r = canvas.getBoundingClientRect();
+  const dx = (e.clientX - r.left) - grabX, dy = (e.clientY - r.top) - grabY;
+  const dist = Math.abs(dx) + Math.abs(dy);
+  if (dist < 22) return;
+  swipeUsed = true;
+  const dir = Math.abs(dx) > Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)];
+  doMove(grabbed, dir[0], dir[1]);
+  grabbed = null;
+  e.preventDefault();
+});
+
+canvas.addEventListener('pointerup', () => { grabbed = null; swipeUsed = false; });
+canvas.addEventListener('pointercancel', () => { grabbed = null; swipeUsed = false; });
+
+function doMove(b, dx, dy) {
+  const d = slideDest(blocks, b, dx, dy, gates);
+  if (d.x === b.x && d.y === b.y && !d.exit) {
+    b.bumpT = 0.22; b.bdx = dx; b.bdy = dy; // denied wiggle
+    return;
+  }
+  b.x = d.x; b.y = d.y;
+  b.bdx = dx; b.bdy = dy;
+  if (d.exit) {
+    b.exiting = true;
+    b.x = d.x + dx; b.y = d.y + dy; // visual target: gate cell
+  }
+}
+
+// ============================== effects ==============================
+function spawnPop(gx, gy, colorIdx) {
+  bursts.push({ x: cx(gx), y: cy(gy), t: 0 });
+  for (let i = 0; i < 14; i++) {
+    const a = Math.random() * Math.PI * 2, sp = (0.6 + Math.random() * 1.6) * cell * 3;
+    particles.push({
+      x: cx(gx), y: cy(gy),
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - cell * 1.5,
+      life: 0.55 + Math.random() * 0.3, t: 0,
+      col: Math.random() < 0.5 ? COLORS[colorIdx] : '#ffffff',
+      sz: cell * (0.06 + Math.random() * 0.08), rot: Math.random() * 6.28,
+    });
+  }
+  floaters.push({ x: cx(gx), y: cy(gy) - cell * 0.3, t: 0, txt: 'POP!', col: COLORS[colorIdx] });
+}
+
+// ============================== update ==============================
+function update(dt) {
+  if (state === 'playing') {
+    timeLeft -= dt;
+    if (timeLeft <= 0) {
+      timeLeft = 0;
+      state = 'lose';
+      document.getElementById('loseText').textContent =
+        blocks.filter(b => !b.dead).length + ' block' + (blocks.filter(b => !b.dead).length === 1 ? '' : 's') + ' left on the board.';
+      showOverlay('loseOverlay');
+    }
+  }
+  const pct = Math.max(0, timeLeft / TIME_LIMIT) * 100;
+  timerBar.style.width = pct + '%';
+  timerBar.classList.toggle('low', timeLeft < 10 && state === 'playing');
+
+  const SPEED = 22; // cells per second
+  let allGone = blocks.length > 0;
+  for (const b of blocks) {
+    if (b.dead) continue;
+    allGone = false;
+    const ddx = b.x - b.vx, ddy = b.y - b.vy;
+    const dist = Math.abs(ddx) + Math.abs(ddy);
+    if (dist > 0.001) {
+      const step = Math.min(dist, SPEED * dt);
+      b.vx += (ddx / dist) * step;
+      b.vy += (ddy / dist) * step;
+      if (Math.abs(b.x - b.vx) + Math.abs(b.y - b.vy) < 0.001) {
+        b.vx = b.x; b.vy = b.y;
+        if (b.exiting) {
+          b.dead = true;
+          spawnPop(b.x, b.y, b.c);
+        } else {
+          b.bumpT = 0.18; // arrival thunk
+        }
+      }
+    }
+    if (b.bumpT > 0) b.bumpT -= dt;
+  }
+  // win check: every block dead
+  if (state === 'playing' && blocks.length && blocks.every(b => b.dead)) {
+    const bonus = Math.ceil(timeLeft) * 10;
+    score += bonus;
+    scorePill.textContent = 'Score ' + score;
+    state = 'clear';
+    setTimeout(() => {
+      if (state !== 'clear') return;
+      if (levelIdx + 1 >= LEVELS.length) {
+        document.getElementById('winScore').textContent = score;
+        state = 'win';
+        showOverlay('winOverlay');
+      } else {
+        document.getElementById('clearTitle').textContent = 'Level ' + (levelIdx + 1) + ' Clear!';
+        document.getElementById('clearBonus').textContent = 'Time bonus: +' + bonus;
+        document.getElementById('clearScore').textContent = score;
+        showOverlay('clearOverlay');
+      }
+    }, 650);
+  }
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.t += dt;
+    if (p.t >= p.life) { particles.splice(i, 1); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vy += cell * 9 * dt;
+    p.rot += dt * 7;
+  }
+  for (let i = bursts.length - 1; i >= 0; i--) {
+    bursts[i].t += dt;
+    if (bursts[i].t > 0.45) bursts.splice(i, 1);
+  }
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    floaters[i].t += dt;
+    if (floaters[i].t > 0.8) floaters.splice(i, 1);
+  }
+}
+
+// ============================== drawing ==============================
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+
+function drawBoard() {
+  // panel
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  roundRect(ctx, boardX - 8, boardY - 8, cell * W + 16, cell * H + 16, 18);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  // cells
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      ctx.fillStyle = (x + y) % 2 ? 'rgba(190,220,250,0.45)' : 'rgba(215,236,255,0.45)';
+      roundRect(ctx, boardX + x * cell + 2, boardY + y * cell + 2, cell - 4, cell - 4, 8);
+      ctx.fill();
+    }
+  }
+}
+
+function drawGates(t) {
+  const pulse = 1 + Math.sin(t * 3) * 0.05;
+  for (const g of gates) {
+    const gc = gateCell(g);
+    const x = cx(gc.x), y = cy(gc.y);
+    const s = cell * 0.96 * pulse;
+    // glow pad
+    ctx.fillStyle = COLORS[g.c];
+    ctx.globalAlpha = 0.28 + Math.sin(t * 3) * 0.08;
+    ctx.beginPath();
+    ctx.arc(x, y, cell * 0.52, 0, 6.2832);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    if (gateTinted) {
+      ctx.drawImage(gateTinted[g.c], x - s / 2, y - s / 2, s, s);
+    } else {
+      // fallback: colored arch
+      ctx.fillStyle = COLORS_DARK[g.c];
+      roundRect(ctx, x - s * 0.42, y - s * 0.42, s * 0.84, s * 0.84, s * 0.2);
+      ctx.fill();
+      ctx.fillStyle = COLORS[g.c];
+      ctx.beginPath();
+      ctx.arc(x, y, s * 0.26, 0, 6.2832);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.arc(x, y, s * 0.13, 0, 6.2832);
+      ctx.fill();
+    }
+  }
+}
+
+function drawBlock(b, t) {
+  if (b.dead) return;
+  let ox = 0, oy = 0;
+  if (b.bumpT > 0) {
+    const k = Math.sin(b.bumpT * 40) * b.bumpT * 0.35;
+    ox = b.bdx * k * cell; oy = b.bdy * k * cell;
+  }
+  const idle = 1 + Math.sin(t * 2.2 + b.phase) * 0.012;
+  const grab = (b === grabbed) ? 1.09 : 1;
+  const moving = Math.abs(b.x - b.vx) + Math.abs(b.y - b.vy) > 0.01;
+  const sx = moving && b.bdx !== 0 ? 1.08 : 1, sy = moving && b.bdy !== 0 ? 1.08 : 1;
+  const x = cx(b.vx) + ox, y = cy(b.vy) + oy;
+  const s = cell * 0.92 * idle * grab;
+  let alpha = 1;
+  if (b.exiting && moving) alpha = 0.95;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(x, y);
+  ctx.scale(sx / Math.sqrt(sy), sy / Math.sqrt(sx));
+  if (b === grabbed) {
+    ctx.shadowColor = COLORS[b.c];
+    ctx.shadowBlur = 18;
+  }
+  if (sprites.blocks && blockSlices) {
+    const sl = blockSlices[b.c];
+    ctx.drawImage(sprites.blocks, sl.sx, sl.sy, sl.sw, sl.sh, -s / 2, -s / 2, s, s);
+  } else {
+    const gr = ctx.createLinearGradient(-s / 2, -s / 2, s / 2, s / 2);
+    gr.addColorStop(0, COLORS[b.c]);
+    gr.addColorStop(1, COLORS_DARK[b.c]);
+    ctx.fillStyle = gr;
+    roundRect(ctx, -s / 2, -s / 2, s, s, s * 0.22);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    roundRect(ctx, -s * 0.36, -s * 0.36, s * 0.72, s * 0.3, s * 0.14);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawEffects() {
+  for (const p of particles) {
+    const a = 1 - p.t / p.life;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+    ctx.fillStyle = p.col;
+    ctx.fillRect(-p.sz, -p.sz, p.sz * 2, p.sz * 2);
+    ctx.restore();
+  }
+  for (const bu of bursts) {
+    const k = bu.t / 0.45;
+    const s = cell * (0.6 + k * 1.6);
+    ctx.save();
+    ctx.globalAlpha = 1 - k;
+    if (sprites.burst) {
+      ctx.drawImage(sprites.burst, bu.x - s / 2, bu.y - s / 2, s, s);
+    } else {
+      ctx.strokeStyle = '#ffd94a';
+      ctx.lineWidth = 5 * (1 - k);
+      ctx.beginPath();
+      ctx.arc(bu.x, bu.y, s / 2, 0, 6.2832);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.textAlign = 'center';
+  ctx.font = '800 ' + Math.round(cell * 0.42) + 'px -apple-system, sans-serif';
+  for (const f of floaters) {
+    const k = f.t / 0.8;
+    ctx.globalAlpha = 1 - k;
+    ctx.fillStyle = f.col;
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = 4;
+    const y = f.y - k * cell * 0.9;
+    ctx.strokeText(f.txt, f.x, y);
+    ctx.fillText(f.txt, f.x, y);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function frame(ts) {
+  const dt = Math.min(0.05, (ts - lastT) / 1000 || 0.016);
+  lastT = ts;
+  elapsed += dt;
+  if (state === 'playing' || state === 'clear') update(dt);
+  ctx.clearRect(0, 0, vw, vh);
+  if (state !== 'title') {
+    drawBoard();
+    drawGates(elapsed);
+    for (const b of blocks) drawBlock(b, elapsed);
+    drawEffects();
+  }
+  requestAnimationFrame(frame);
+}
+
+// ============================== buttons ==============================
+document.getElementById('startBtn').addEventListener('click', () => { score = 0; startLevel(0); });
+document.getElementById('nextBtn').addEventListener('click', () => startLevel(levelIdx + 1));
+document.getElementById('retryBtn').addEventListener('click', () => startLevel(levelIdx));
+document.getElementById('againBtn').addEventListener('click', () => { score = 0; startLevel(0); });
+document.getElementById('restartBtn').addEventListener('click', () => { if (state === 'playing') startLevel(levelIdx); });
+document.getElementById('titleIcon').addEventListener('error', e => { e.target.style.display = 'none'; });
+
+// ============================== boot ==============================
+preload().then(() => {
+  resize();
+  showOverlay('titleOverlay');
+  requestAnimationFrame(frame);
+});
+</script>
+</body>
+</html>

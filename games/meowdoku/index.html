@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<!-- Inspired by "Meowdoku - Brain Puzzle Games" (App Store chart) — working title: Purrfect Logic -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Purrfect Logic</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, "SF Pro Rounded", "Segoe UI", system-ui, sans-serif;
+    background: linear-gradient(180deg, #fdf6ec 0%, #e8f5ec 100%);
+    color: #4a4038;
+    user-select: none; -webkit-user-select: none;
+    display: flex; justify-content: center;
+  }
+  #bg {
+    position: fixed; inset: 0; z-index: 0;
+    background-size: cover; background-position: center;
+    opacity: .9;
+  }
+  #app {
+    position: relative; z-index: 1;
+    width: 100%; max-width: 480px;
+    height: 100dvh;
+    display: flex; flex-direction: column;
+    padding: max(10px, env(safe-area-inset-top)) 14px max(12px, env(safe-area-inset-bottom));
+  }
+
+  /* ── header ── */
+  #hdr {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 2px 10px;
+  }
+  #hdr h1 { font-size: 21px; letter-spacing: .3px; color: #6b5d4f; }
+  #hearts { display: flex; gap: 4px; }
+  #hearts .hp { width: 30px; height: 30px; transition: filter .3s, opacity .3s, transform .3s; }
+  #hearts .hp.lost { filter: grayscale(1); opacity: .3; transform: scale(.8); }
+  #hearts.shake { animation: shake .45s; }
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); } 40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); } 80% { transform: translateX(4px); }
+  }
+  #timer {
+    font-variant-numeric: tabular-nums; font-weight: 700; font-size: 18px;
+    color: #6b5d4f; min-width: 52px; text-align: right;
+  }
+
+  #lvlTag { text-align: center; font-size: 13px; color: #9a8b7a; padding-bottom: 8px; font-weight: 600; }
+
+  /* ── board ── */
+  #boardWrap { display: flex; justify-content: center; align-items: center; flex: 1 1 auto; min-height: 0; }
+  #board {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    width: min(100%, 62dvh);
+    aspect-ratio: 1;
+    touch-action: none;
+    background: #fffdf8;
+    border: 3px solid #6b5d4f;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 6px 22px rgba(107, 93, 79, .18);
+  }
+  .cell { position: relative; display: flex; align-items: center; justify-content: center; }
+  .cell img, .cell .pc { width: 76%; height: 76%; pointer-events: none; }
+  .cell .pop { animation: popIn .28s cubic-bezier(.34, 1.6, .64, 1); }
+  @keyframes popIn { from { transform: scale(.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .cell .fadeIn { animation: fadeIn .16s ease-out; }
+  @keyframes fadeIn { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: .85; } }
+  .cell .xmark { opacity: .85; }
+  .cell.bad { animation: badFlash .55s; }
+  @keyframes badFlash {
+    0%, 60% { box-shadow: inset 0 0 0 99px rgba(231, 76, 60, .55); }
+    100% { box-shadow: inset 0 0 0 99px rgba(231, 76, 60, 0); }
+  }
+  .cell.blame { animation: blameFlash .8s; }
+  @keyframes blameFlash {
+    0%, 50% { box-shadow: inset 0 0 0 99px rgba(231, 76, 60, .3); }
+    100% { box-shadow: inset 0 0 0 99px rgba(231, 76, 60, 0); }
+  }
+  .cell.winbounce img { animation: winB .6s cubic-bezier(.34, 1.56, .64, 1); }
+  @keyframes winB { 0% { transform: scale(1); } 40% { transform: scale(1.28) rotate(-6deg); } 100% { transform: scale(1); } }
+
+  /* ── buttons ── */
+  #btnRow { display: flex; gap: 12px; padding-top: 14px; }
+  .btn {
+    flex: 1; border: none; border-radius: 16px;
+    padding: 15px 10px; font-size: 17px; font-weight: 700;
+    font-family: inherit; color: #fff; cursor: pointer;
+    box-shadow: 0 4px 0 rgba(0, 0, 0, .14);
+    transition: transform .08s, box-shadow .08s;
+    min-height: 52px;
+  }
+  .btn:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0, 0, 0, .14); }
+  .btn.warm { background: #f2a65a; }
+  .btn.mint { background: #6cc5a1; }
+  .btn.big { font-size: 21px; padding: 17px 34px; flex: none; }
+  .btn.pulse { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+
+  /* ── overlays ── */
+  .overlay {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(74, 64, 56, .45);
+    backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+    opacity: 0; pointer-events: none; transition: opacity .3s;
+  }
+  .overlay.show { opacity: 1; pointer-events: auto; }
+  .card {
+    background: #fffdf8; border-radius: 24px;
+    padding: 30px 26px; margin: 0 24px;
+    width: min(340px, 88vw);
+    text-align: center;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
+    transform: translateY(16px); transition: transform .3s cubic-bezier(.34, 1.4, .64, 1);
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+  }
+  .overlay.show .card { transform: translateY(0); }
+  .card img.hero { width: 110px; height: 110px; animation: bob 2.4s ease-in-out infinite; }
+  @keyframes bob { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-8px) rotate(2deg); } }
+  .card h2 { font-size: 27px; color: #6b5d4f; }
+  .card p { font-size: 15px; line-height: 1.5; color: #8a7a68; }
+  .card .time { font-size: 32px; font-weight: 800; color: #f2a65a; font-variant-numeric: tabular-nums; }
+  .rules { text-align: left; font-size: 14px !important; }
+  .rules b { color: #6b5d4f; }
+
+  /* floating text + confetti */
+  .float {
+    position: fixed; z-index: 20; pointer-events: none;
+    font-weight: 800; font-size: 22px; color: #e74c3c;
+    animation: floatUp .9s ease-out forwards;
+    text-shadow: 0 1px 3px rgba(255, 255, 255, .8);
+  }
+  @keyframes floatUp { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-56px); opacity: 0; } }
+  .conf {
+    position: fixed; z-index: 30; pointer-events: none;
+    width: 10px; height: 10px; border-radius: 3px; top: -14px;
+    animation: confFall linear forwards;
+  }
+  @keyframes confFall { to { transform: translateY(110dvh) rotate(720deg); } }
+</style>
+</head>
+<body>
+<a id="arcadeBack" href="../../" aria-label="Back to arcade" style="position:fixed;top:calc(8px + env(safe-area-inset-top));left:calc(8px + env(safe-area-inset-left));z-index:99999;display:flex;align-items:center;gap:4px;height:32px;padding:0 12px 0 8px;border-radius:999px;background:rgba(8,12,26,.62);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.18);color:#fff;font:800 12.5px -apple-system,BlinkMacSystemFont,sans-serif;text-decoration:none;-webkit-tap-highlight-color:transparent;">‹ Arcade</a>
+<div id="bg"></div>
+<div id="app">
+  <div id="hdr">
+    <h1>Purrfect Logic</h1>
+    <div id="hearts"></div>
+    <div id="timer">0:00</div>
+  </div>
+  <div id="lvlTag">Puzzle 1</div>
+  <div id="boardWrap"><div id="board"></div></div>
+  <div id="btnRow">
+    <button class="btn mint" id="btnReset">Reset</button>
+    <button class="btn warm" id="btnNew">New Puzzle</button>
+  </div>
+</div>
+
+<div class="overlay show" id="ovTitle">
+  <div class="card">
+    <img class="hero" id="titleIcon" alt="">
+    <h2>Purrfect Logic</h2>
+    <p class="rules">
+      Place one cat in every <b>row</b>, <b>column</b> and <b>color region</b>.<br>
+      Cats never sit next to each other — not even diagonally!<br><br>
+      <b>Tap</b> a cell: empty &rarr; &#10005; note &rarr; cat.<br>
+      Wrong cat = lose a heart. 3 mistakes and the cats nap elsewhere.
+    </p>
+    <button class="btn warm big pulse" id="btnPlay">Play</button>
+  </div>
+</div>
+
+<div class="overlay" id="ovWin">
+  <div class="card">
+    <img class="hero" id="winIcon" alt="">
+    <h2>Purrfect!</h2>
+    <p>All cats seated. Solved in</p>
+    <div class="time" id="winTime">0:00</div>
+    <div style="display:flex; gap:10px; width:100%">
+      <button class="btn mint" id="btnWinReplay">Replay</button>
+      <button class="btn warm" id="btnWinNext">Next Puzzle</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="ovLose">
+  <div class="card">
+    <img class="hero" id="loseIcon" alt="" style="filter:grayscale(.7)">
+    <h2>Out of Hearts</h2>
+    <p>The cats got confused. Take a breath and deduce, don't guess!</p>
+    <div style="display:flex; gap:10px; width:100%">
+      <button class="btn mint" id="btnLoseRetry">Try Again</button>
+      <button class="btn warm" id="btnLoseNew">New Puzzle</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+(function () {
+  var N = 6, EMPTY = 0, XMARK = 1, CAT = 2;
+
+  // Hand-authored boards (region map: 36 chars, region id per cell).
+  // Each verified offline to have exactly one valid solution.
+  var BOARDS = [
+    '000011000011222111223344223344333544',
+    '022114021114223344233344535334555554',
+    '000111300011322221332224332444334455',
+    '000222111233142233442533445533445555',
+    '421100421111422333422333445553555533'
+  ];
+
+  var REGION_COLORS = ['#ffd9e0', '#d6ecff', '#fff3c2', '#d8f5d3', '#eadcff', '#ffe0c2'];
+
+  // ── sprite loading with magenta keying + flat-shape fallbacks ──
+  function keyMagenta(img) {
+    var c = document.createElement('canvas');
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    var g = c.getContext('2d');
+    g.drawImage(img, 0, 0);
+    var d = g.getImageData(0, 0, c.width, c.height), p = d.data;
+    for (var i = 0; i < p.length; i += 4) {
+      if (p[i] > 200 && p[i + 2] > 200 && p[i + 1] < 120) p[i + 3] = 0;
+    }
+    g.putImageData(d, 0, 0);
+    return c.toDataURL();
+  }
+
+  function fallbackSprite(kind) {
+    var c = document.createElement('canvas');
+    c.width = 128; c.height = 128;
+    var g = c.getContext('2d');
+    g.lineCap = 'round';
+    if (kind === 'cat') {
+      g.fillStyle = '#f2a65a';
+      g.beginPath(); g.moveTo(30, 44); g.lineTo(24, 14); g.lineTo(56, 32); g.fill();
+      g.beginPath(); g.moveTo(98, 44); g.lineTo(104, 14); g.lineTo(72, 32); g.fill();
+      g.beginPath(); g.arc(64, 72, 46, 0, 7); g.fill();
+      g.fillStyle = '#4a4038';
+      g.beginPath(); g.arc(48, 66, 4, 0, 7); g.fill();
+      g.beginPath(); g.arc(80, 66, 4, 0, 7); g.fill();
+      g.strokeStyle = '#4a4038'; g.lineWidth = 3;
+      g.beginPath(); g.moveTo(56, 82); g.quadraticCurveTo(64, 90, 72, 82); g.stroke();
+    } else if (kind === 'x') {
+      g.strokeStyle = '#9a8b7a'; g.lineWidth = 14;
+      g.beginPath(); g.moveTo(34, 34); g.lineTo(94, 94); g.stroke();
+      g.beginPath(); g.moveTo(94, 34); g.lineTo(34, 94); g.stroke();
+    } else { // heart
+      g.fillStyle = '#f06a7e';
+      g.beginPath();
+      g.moveTo(64, 112);
+      g.bezierCurveTo(10, 72, 22, 20, 64, 46);
+      g.bezierCurveTo(106, 20, 118, 72, 64, 112);
+      g.fill();
+    }
+    return c.toDataURL();
+  }
+
+  var SPRITES = { cat: null, x: null, heart: null };
+
+  function loadSprite(src, kind) {
+    return new Promise(function (res) {
+      var img = new Image();
+      img.onload = function () {
+        try { SPRITES[kind] = keyMagenta(img); }
+        catch (e) { SPRITES[kind] = fallbackSprite(kind); }
+        res();
+      };
+      img.onerror = function () { SPRITES[kind] = fallbackSprite(kind); res(); };
+      img.src = src;
+    });
+  }
+
+  function loadBg() {
+    return new Promise(function (res) {
+      var img = new Image();
+      img.onload = function () {
+        document.getElementById('bg').style.backgroundImage = 'url("assets/bg-zen.png")';
+        res();
+      };
+      img.onerror = res; // CSS gradient stays as fallback
+      img.src = 'assets/bg-zen.png';
+    });
+  }
+
+  // ── state ──
+  var levelIdx = 0, region = [], cells = [], state = [], hearts = 3;
+  var playing = false, startT = 0, timerId = 0;
+
+  var boardEl = document.getElementById('board');
+  var heartsEl = document.getElementById('hearts');
+  var timerEl = document.getElementById('timer');
+  var lvlTagEl = document.getElementById('lvlTag');
+
+  function fmt(ms) {
+    var s = Math.floor(ms / 1000);
+    return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
+  }
+
+  function renderHearts() {
+    heartsEl.innerHTML = '';
+    for (var i = 0; i < 3; i++) {
+      var im = new Image();
+      im.src = SPRITES.heart;
+      im.className = 'hp' + (i < hearts ? '' : ' lost');
+      heartsEl.appendChild(im);
+    }
+  }
+
+  function buildBoard() {
+    region = BOARDS[levelIdx].split('').map(Number);
+    state = new Array(N * N).fill(EMPTY);
+    cells = [];
+    boardEl.innerHTML = '';
+    for (var i = 0; i < N * N; i++) {
+      var r = (i / N) | 0, c = i % N;
+      var div = document.createElement('div');
+      div.className = 'cell';
+      div.dataset.i = i;
+      div.style.background = REGION_COLORS[region[i]];
+      // region borders: thick line where neighbor differs, thin otherwise
+      var thick = '2.5px solid rgba(107,93,79,.85)', thin = '1px solid rgba(107,93,79,.18)';
+      div.style.borderRight = (c < N - 1) ? (region[i] !== region[i + 1] ? thick : thin) : 'none';
+      div.style.borderBottom = (r < N - 1) ? (region[i] !== region[i + N] ? thick : thin) : 'none';
+      boardEl.appendChild(div);
+      cells.push(div);
+    }
+    lvlTagEl.textContent = 'Puzzle ' + (levelIdx + 1) + ' of ' + BOARDS.length;
+  }
+
+  function setCell(i, st, animate) {
+    state[i] = st;
+    var div = cells[i];
+    var old = div.querySelector('img');
+    if (old) div.removeChild(old);
+    if (st === EMPTY) return;
+    var im = new Image();
+    if (st === CAT) {
+      im.src = SPRITES.cat;
+      if (animate) im.className = 'pop';
+    } else {
+      im.src = SPRITES.x;
+      im.className = 'xmark' + (animate ? ' fadeIn' : '');
+    }
+    div.appendChild(im);
+  }
+
+  // cats already placed that conflict with a cat at idx
+  function findConflicts(idx) {
+    var r = (idx / N) | 0, c = idx % N, reg = region[idx], out = [];
+    for (var j = 0; j < N * N; j++) {
+      if (j === idx || state[j] !== CAT) continue;
+      var jr = (j / N) | 0, jc = j % N;
+      if (jr === r || jc === c || region[j] === reg ||
+          (Math.abs(jr - r) <= 1 && Math.abs(jc - c) <= 1)) out.push(j);
+    }
+    return out;
+  }
+
+  function catCount() {
+    var n = 0;
+    for (var i = 0; i < state.length; i++) if (state[i] === CAT) n++;
+    return n;
+  }
+
+  function flash(el, cls) {
+    el.classList.remove(cls);
+    void el.offsetWidth; // restart animation
+    el.classList.add(cls);
+  }
+
+  function floatText(x, y, txt) {
+    var d = document.createElement('div');
+    d.className = 'float';
+    d.textContent = txt;
+    d.style.left = (x - 14) + 'px';
+    d.style.top = (y - 30) + 'px';
+    document.body.appendChild(d);
+    setTimeout(function () { d.remove(); }, 950);
+  }
+
+  function confetti() {
+    var colors = REGION_COLORS.concat(['#f2a65a', '#6cc5a1']);
+    for (var i = 0; i < 46; i++) {
+      var d = document.createElement('div');
+      d.className = 'conf';
+      d.style.left = (Math.random() * 100) + 'vw';
+      d.style.background = colors[(Math.random() * colors.length) | 0];
+      d.style.animationDuration = (1.3 + Math.random() * 1.4) + 's';
+      d.style.animationDelay = (Math.random() * 0.5) + 's';
+      d.style.width = d.style.height = (7 + Math.random() * 7) + 'px';
+      document.body.appendChild(d);
+      (function (el) { setTimeout(function () { el.remove(); }, 3400); })(d);
+    }
+  }
+
+  function loseHeart(idx, px, py) {
+    hearts--;
+    renderHearts();
+    flash(heartsEl, 'shake');
+    flash(cells[idx], 'bad');
+    floatText(px, py, '-1');
+    var conf = findConflicts(idx);
+    for (var k = 0; k < conf.length; k++) flash(cells[conf[k]], 'blame');
+    if (hearts <= 0) {
+      playing = false;
+      clearInterval(timerId);
+      setTimeout(function () { show('ovLose'); }, 650);
+    }
+  }
+
+  function winGame() {
+    playing = false;
+    clearInterval(timerId);
+    var t = fmt(Date.now() - startT);
+    for (var i = 0; i < cells.length; i++) {
+      if (state[i] === CAT) {
+        (function (el, d) { setTimeout(function () { flash(el, 'winbounce'); }, d); })(cells[i], i * 30);
+      }
+    }
+    confetti();
+    document.getElementById('winTime').textContent = t;
+    setTimeout(function () { show('ovWin'); }, 900);
+  }
+
+  boardEl.addEventListener('pointerdown', function (ev) {
+    ev.preventDefault();
+    if (!playing) return;
+    var cell = ev.target.closest('.cell');
+    if (!cell) return;
+    var i = +cell.dataset.i;
+    if (state[i] === EMPTY) {
+      setCell(i, XMARK, true);
+    } else if (state[i] === XMARK) {
+      if (findConflicts(i).length) {
+        loseHeart(i, ev.clientX, ev.clientY);
+      } else {
+        setCell(i, CAT, true);
+        if (catCount() === N) winGame();
+      }
+    } else {
+      setCell(i, EMPTY, false);
+    }
+  });
+
+  // ── flow ──
+  function show(id) { document.getElementById(id).classList.add('show'); }
+  function hide(id) { document.getElementById(id).classList.remove('show'); }
+  function hideAll() { hide('ovTitle'); hide('ovWin'); hide('ovLose'); }
+
+  function startPuzzle(idx) {
+    levelIdx = ((idx % BOARDS.length) + BOARDS.length) % BOARDS.length;
+    hearts = 3;
+    buildBoard();
+    renderHearts();
+    hideAll();
+    playing = true;
+    startT = Date.now();
+    clearInterval(timerId);
+    timerEl.textContent = '0:00';
+    timerId = setInterval(function () {
+      if (playing) timerEl.textContent = fmt(Date.now() - startT);
+    }, 250);
+  }
+
+  document.getElementById('btnPlay').addEventListener('click', function () { startPuzzle(0); });
+  document.getElementById('btnReset').addEventListener('click', function () {
+    if (document.getElementById('ovTitle').classList.contains('show')) return;
+    startPuzzle(levelIdx);
+  });
+  document.getElementById('btnNew').addEventListener('click', function () {
+    if (document.getElementById('ovTitle').classList.contains('show')) return;
+    startPuzzle(levelIdx + 1);
+  });
+  document.getElementById('btnWinReplay').addEventListener('click', function () { startPuzzle(levelIdx); });
+  document.getElementById('btnWinNext').addEventListener('click', function () { startPuzzle(levelIdx + 1); });
+  document.getElementById('btnLoseRetry').addEventListener('click', function () { startPuzzle(levelIdx); });
+  document.getElementById('btnLoseNew').addEventListener('click', function () { startPuzzle(levelIdx + 1); });
+
+  // block double-tap zoom on iOS
+  document.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+  // ── boot: preload art (with fallbacks), then reveal title ──
+  Promise.all([
+    loadSprite('assets/cat-piece.png', 'cat'),
+    loadSprite('assets/mark-x.png', 'x'),
+    loadSprite('assets/heart.png', 'heart'),
+    loadBg()
+  ]).then(function () {
+    var heroSrc;
+    var ic = new Image();
+    ic.onload = function () { applyHero('assets/icon.png'); };
+    ic.onerror = function () { applyHero(SPRITES.cat); };
+    ic.src = 'assets/icon.png';
+    function applyHero(src) {
+      heroSrc = src;
+      document.getElementById('titleIcon').src = heroSrc;
+      document.getElementById('winIcon').src = SPRITES.cat;
+      document.getElementById('loseIcon').src = SPRITES.cat;
+    }
+    renderHearts();
+    buildBoard(); // show board behind the title overlay
+  });
+})();
+</script>
+</body>
+</html>

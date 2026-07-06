@@ -1,0 +1,24 @@
+# secrets — never commit
+.env
+*service*account*.json
+renderwolf-*.json
+
+# junk
+node_modules/
+.DS_Store
+
+# internal dev artifacts (kept local, not part of the public arcade)
+PLAN.md
+specs/
+tools/
+games/**/NOTES.md
+
+# build-time backups of original (pre-cutout) sprites
+**/assets/_orig/
+
+# games not yet built — excluded from the hosted arcade
+games/bus-traffic-fever/
+games/colony-flow/
+games/magic-sort/
+games/soccer-superstar/
+games/vita-mahjong/

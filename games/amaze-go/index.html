@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<!-- Inspired by the chart game "Amaze GO!" (calm arrows-escape puzzle) - working title: Drift Away Arrows -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Drift Away Arrows</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; background: #dfeef5; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #4a5568;
+    user-select: none;
+    -webkit-user-select: none;
+    position: fixed;
+    inset: 0;
+  }
+  #game {
+    position: absolute;
+    inset: 0;
+    touch-action: none;
+    display: block;
+  }
+  /* ---------- HUD ---------- */
+  #hud {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: none;
+  }
+  #hud.on { display: block; }
+  .hudTop {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 0px) + 14px);
+    left: 0; right: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 0 16px;
+  }
+  #levelBadge {
+    background: rgba(255,255,255,0.72);
+    border-radius: 16px;
+    padding: 8px 16px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #5b7a8c;
+    box-shadow: 0 2px 10px rgba(90,130,150,0.12);
+    backdrop-filter: blur(4px);
+  }
+  #hearts {
+    background: rgba(255,255,255,0.72);
+    border-radius: 16px;
+    padding: 7px 13px;
+    display: flex;
+    gap: 5px;
+    box-shadow: 0 2px 10px rgba(90,130,150,0.12);
+    backdrop-filter: blur(4px);
+  }
+  .heart {
+    font-size: 19px;
+    color: #f38ba0;
+    transition: transform .35s ease, opacity .35s ease, filter .35s ease;
+    display: inline-block;
+  }
+  .heart.lost {
+    color: #c3cdd6;
+    transform: scale(0.72);
+    opacity: 0.55;
+  }
+  .heart.popping { animation: heartPop .5s ease; }
+  @keyframes heartPop {
+    0% { transform: scale(1); }
+    35% { transform: scale(1.55) rotate(-12deg); }
+    100% { transform: scale(0.72); }
+  }
+  #scoreWrap {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 0px) + 14px);
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+  }
+  #score {
+    font-size: 26px;
+    font-weight: 800;
+    color: #5b7a8c;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.8);
+    transition: transform .15s ease;
+  }
+  #score.bump { transform: scale(1.25); }
+  #streak {
+    font-size: 13px;
+    font-weight: 700;
+    color: #8fb98f;
+    opacity: 0;
+    transition: opacity .3s ease;
+    margin-top: 2px;
+  }
+  #streak.on { opacity: 1; }
+  #hintBtn {
+    position: absolute;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 22px);
+    left: 50%;
+    transform: translateX(-50%);
+    pointer-events: auto;
+    min-width: 150px;
+    min-height: 52px;
+    border: none;
+    border-radius: 26px;
+    background: rgba(255,255,255,0.85);
+    color: #5b7a8c;
+    font-size: 17px;
+    font-weight: 700;
+    font-family: inherit;
+    box-shadow: 0 4px 16px rgba(90,130,150,0.18);
+    cursor: pointer;
+    animation: hintIdle 3.2s ease-in-out infinite;
+  }
+  #hintBtn:active { transform: translateX(-50%) scale(0.94); }
+  @keyframes hintIdle {
+    0%, 100% { box-shadow: 0 4px 16px rgba(90,130,150,0.18); }
+    50% { box-shadow: 0 4px 24px rgba(143,185,143,0.45); }
+  }
+  /* ---------- Overlays ---------- */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 32px;
+    background: rgba(228,240,246,0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  .overlay.on { display: flex; }
+  .card {
+    background: rgba(255,255,255,0.9);
+    border-radius: 28px;
+    padding: 36px 30px;
+    max-width: 340px;
+    width: 100%;
+    box-shadow: 0 12px 40px rgba(90,130,150,0.22);
+    animation: cardIn .45s cubic-bezier(.2,1.4,.4,1);
+  }
+  @keyframes cardIn {
+    from { transform: translateY(26px) scale(0.92); opacity: 0; }
+    to { transform: none; opacity: 1; }
+  }
+  .card h1 { font-size: 30px; color: #4f7086; font-weight: 800; letter-spacing: -0.5px; }
+  .card h2 { font-size: 24px; color: #4f7086; font-weight: 800; }
+  .card p { font-size: 15px; line-height: 1.55; color: #7a8a96; margin-top: 12px; }
+  .card .big { font-size: 40px; margin: 10px 0 2px; }
+  .btn {
+    margin-top: 22px;
+    min-width: 190px;
+    min-height: 56px;
+    border: none;
+    border-radius: 28px;
+    background: linear-gradient(135deg, #a8dcc4, #8fc9b0);
+    color: #fff;
+    font-size: 19px;
+    font-weight: 800;
+    font-family: inherit;
+    letter-spacing: 0.3px;
+    box-shadow: 0 6px 18px rgba(143,201,176,0.5);
+    cursor: pointer;
+    animation: btnPulse 2.4s ease-in-out infinite;
+  }
+  .btn:active { transform: scale(0.94); animation: none; }
+  @keyframes btnPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+  .btn.soft { background: linear-gradient(135deg, #b9cfe0, #9db9cf); box-shadow: 0 6px 18px rgba(157,185,207,0.5); }
+  #titleIcon { width: 96px; height: 96px; border-radius: 24px; margin-bottom: 14px; box-shadow: 0 8px 22px rgba(90,130,150,0.25); animation: bob 3s ease-in-out infinite; }
+  @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+  .scoreLine { font-size: 17px; font-weight: 700; color: #8fb98f; margin-top: 10px; }
+</style>
+</head>
+<body>
+<a id="arcadeBack" href="../../" aria-label="Back to arcade" style="position:fixed;top:calc(8px + env(safe-area-inset-top));left:calc(8px + env(safe-area-inset-left));z-index:99999;display:flex;align-items:center;gap:4px;height:32px;padding:0 12px 0 8px;border-radius:999px;background:rgba(8,12,26,.62);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.18);color:#fff;font:800 12.5px -apple-system,BlinkMacSystemFont,sans-serif;text-decoration:none;-webkit-tap-highlight-color:transparent;">‹ Arcade</a>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div class="hudTop">
+    <div id="levelBadge">Level 1</div>
+    <div id="hearts"><span class="heart">&#9829;</span><span class="heart">&#9829;</span><span class="heart">&#9829;</span></div>
+  </div>
+  <div id="scoreWrap">
+    <div id="score">0</div>
+    <div id="streak">zen streak x2</div>
+  </div>
+  <button id="hintBtn">&#10024; Guidance</button>
+</div>
+
+<div id="titleScreen" class="overlay on">
+  <div class="card">
+    <img id="titleIcon" src="assets/icon.png" alt="">
+    <h1>Drift Away Arrows</h1>
+    <p>Tap an arrow to send it drifting off the board. Long pieces glide along their own lane &mdash; but a blocked arrow costs a heart. Clear every arrow to breathe easy.</p>
+    <p style="font-size:13px;opacity:.8;">Hold any piece (or tap Guidance) for a gentle hint.</p>
+    <button id="playBtn" class="btn">Begin</button>
+  </div>
+</div>
+
+<div id="clearScreen" class="overlay">
+  <div class="card">
+    <div class="big">&#127807;</div>
+    <h2 id="clearTitle">Level 1 cleared</h2>
+    <p id="clearSub">The board drifts empty. Lovely.</p>
+    <div class="scoreLine" id="clearScore"></div>
+    <button id="nextBtn" class="btn">Continue</button>
+  </div>
+</div>
+
+<div id="loseScreen" class="overlay">
+  <div class="card">
+    <div class="big">&#128173;</div>
+    <h2>Take a breath</h2>
+    <p>The hearts drifted away, but the arrows will wait for you. No penalty &mdash; try this board again.</p>
+    <button id="retryBtn" class="btn soft">Retry gently</button>
+  </div>
+</div>
+
+<div id="winScreen" class="overlay">
+  <div class="card">
+    <div class="big">&#127749;</div>
+    <h2>You drifted away</h2>
+    <p>All ten boards cleared. A quiet mind and an empty board.</p>
+    <div class="scoreLine" id="winScore"></div>
+    <button id="againBtn" class="btn">Float again</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+(function () {
+  // ============================== constants ==============================
+  var N = 7;
+  var DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0]; // up, right, down, left
+  var LONGPRESS_MS = 500;
+
+  var LEVELS = [
+    { count: 5,  lens: [2, 2, 3] },
+    { count: 7,  lens: [2, 2, 3] },
+    { count: 8,  lens: [1, 2, 2, 3] },
+    { count: 10, lens: [1, 2, 2, 3] },
+    { count: 11, lens: [1, 2, 3, 3] },
+    { count: 12, lens: [1, 2, 2, 3, 3] },
+    { count: 13, lens: [1, 2, 2, 3, 3] },
+    { count: 14, lens: [1, 1, 2, 2, 3, 3] },
+    { count: 15, lens: [1, 2, 2, 3, 3] },
+    { count: 16, lens: [1, 1, 2, 2, 3, 3] }
+  ];
+
+  var LONG_TINTS = [null, '#b9a7e6', '#93c7ea', '#f2c583'];   // coral base + lavender, sky, peach
+  var SINGLE_TINTS = [null, '#f3b8cc', '#a9c8ee', '#efe0a2']; // mint base + pink, blue, butter
+  var FALL_LONG = ['#f2958a', '#b9a7e6', '#93c7ea', '#f2c583'];
+  var FALL_SINGLE = ['#b5dcc5', '#f3b8cc', '#a9c8ee', '#efe0a2'];
+
+  // ============================== pure logic =============================
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function pieceCells(p) {
+    var cells = [];
+    var horiz = p.dir === 1 || p.dir === 3;
+    for (var i = 0; i < p.len; i++) cells.push(horiz ? [p.r, p.c + i] : [p.r + i, p.c]);
+    return cells;
+  }
+
+  function headCell(p) {
+    if (p.dir === 1) return [p.r, p.c + p.len - 1];
+    if (p.dir === 2) return [p.r + p.len - 1, p.c];
+    return [p.r, p.c];
+  }
+
+  function pathInfo(p, pieces) {
+    var occ = {};
+    for (var i = 0; i < pieces.length; i++) {
+      var q = pieces[i];
+      if (q === p) continue;
+      var cs = pieceCells(q);
+      for (var j = 0; j < cs.length; j++) occ[cs[j][0] * N + cs[j][1]] = true;
+    }
+    var h = headCell(p), hr = h[0], hc = h[1], free = 0;
+    for (;;) {
+      hr += DY[p.dir]; hc += DX[p.dir];
+      if (hr < 0 || hr >= N || hc < 0 || hc >= N) return { clear: true, free: free };
+      if (occ[hr * N + hc]) return { clear: false, free: free };
+      free++;
+    }
+  }
+
+  // Reverse-insertion: every inserted piece has a clear exit ray past all
+  // previously inserted pieces, so removing in reverse order always solves it.
+  function genLevel(seed, count, lenPool) {
+    var rng = mulberry32(seed);
+    for (var attempt = 0; attempt < 60; attempt++) {
+      var pieces = [], occ = {}, ok = true;
+      for (var i = 0; i < count; i++) {
+        var placed = false;
+        for (var t = 0; t < 400 && !placed; t++) {
+          var len = lenPool[(rng() * lenPool.length) | 0];
+          var dir = (rng() * 4) | 0;
+          var horiz = dir === 1 || dir === 3;
+          var maxR = horiz ? N : N - len + 1;
+          var maxC = horiz ? N - len + 1 : N;
+          var r = (rng() * maxR) | 0, c = (rng() * maxC) | 0;
+          var p = { r: r, c: c, len: len, dir: dir, tint: (rng() * 4) | 0 };
+          var cells = pieceCells(p), bad = false;
+          for (var k = 0; k < cells.length; k++) if (occ[cells[k][0] * N + cells[k][1]]) { bad = true; break; }
+          if (bad) continue;
+          if (!pathInfo(p, pieces.concat([p])).clear) continue;
+          pieces.push(p);
+          for (k = 0; k < cells.length; k++) occ[cells[k][0] * N + cells[k][1]] = true;
+          placed = true;
+        }
+        if (!placed) { ok = false; break; }
+      }
+      if (ok) return pieces;
+    }
+    return [];
+  }
+
+  // ============================== art loading ============================
+  var sprites = { bg: null, single: null, long: null, sparkle: null };
+  var tinted = { single: [], long: [] }; // canvases per tint index
+  var artReady = false;
+
+  function keyMagenta(img) {
+    var c = document.createElement('canvas');
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    var g = c.getContext('2d');
+    g.drawImage(img, 0, 0);
+    var d = g.getImageData(0, 0, c.width, c.height), px = d.data;
+    for (var i = 0; i < px.length; i += 4) {
+      if (px[i] > 200 && px[i + 2] > 200 && px[i + 1] < 120) px[i + 3] = 0;
+    }
+    g.putImageData(d, 0, 0);
+    return c;
+  }
+
+  function cropOpaque(cv) {
+    var g = cv.getContext('2d');
+    var d = g.getImageData(0, 0, cv.width, cv.height).data;
+    var minX = cv.width, minY = cv.height, maxX = 0, maxY = 0;
+    for (var y = 0; y < cv.height; y += 2) {
+      for (var x = 0; x < cv.width; x += 2) {
+        if (d[(y * cv.width + x) * 4 + 3] > 20) {
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX <= minX || maxY <= minY) return cv;
+    var out = document.createElement('canvas');
+    out.width = maxX - minX + 2; out.height = maxY - minY + 2;
+    out.getContext('2d').drawImage(cv, -minX, -minY);
+    return out;
+  }
+
+  function tintCanvas(src, color) {
+    var c = document.createElement('canvas');
+    c.width = src.width; c.height = src.height;
+    var g = c.getContext('2d');
+    g.drawImage(src, 0, 0);
+    if (color) {
+      g.globalCompositeOperation = 'source-atop';
+      g.globalAlpha = 0.45;
+      g.fillStyle = color;
+      g.fillRect(0, 0, c.width, c.height);
+    }
+    return c;
+  }
+
+  function loadImage(src) {
+    return new Promise(function (resolve) {
+      var img = new Image();
+      var done = false;
+      var finish = function (ok) { if (!done) { done = true; resolve(ok ? img : null); } };
+      img.onload = function () { finish(true); };
+      img.onerror = function () { finish(false); };
+      setTimeout(function () { finish(false); }, 6000);
+      img.src = src;
+    });
+  }
+
+  function loadArt() {
+    return Promise.all([
+      loadImage('assets/bg-zen.png'),
+      loadImage('assets/tile-arrow-pastel.png'),
+      loadImage('assets/tile-long-arrow.png'),
+      loadImage('assets/sparkle.png')
+    ]).then(function (imgs) {
+      sprites.bg = imgs[0];
+      if (imgs[1]) sprites.single = cropOpaque(keyMagenta(imgs[1]));
+      if (imgs[2]) sprites.long = cropOpaque(keyMagenta(imgs[2]));
+      if (imgs[3]) sprites.sparkle = cropOpaque(keyMagenta(imgs[3]));
+      for (var i = 0; i < 4; i++) {
+        if (sprites.single) tinted.single.push(tintCanvas(sprites.single, SINGLE_TINTS[i]));
+        if (sprites.long) tinted.long.push(tintCanvas(sprites.long, LONG_TINTS[i]));
+      }
+      artReady = true;
+    });
+  }
+
+  // ============================== canvas setup ===========================
+  var canvas = document.getElementById('game');
+  var ctx = canvas.getContext('2d');
+  var W = 0, H = 0, DPR = 1;
+  var board = { x: 0, y: 0, size: 0, cell: 0 };
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    var s = Math.min(W * 0.94, H * 0.60);
+    board.size = s;
+    board.cell = s / N;
+    board.x = (W - s) / 2;
+    board.y = Math.max(H * 0.155, 86);
+    if (board.y + s > H - 100) board.y = Math.max(60, (H - s) / 2 - 20);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ============================== game state =============================
+  var state = 'title'; // title | play | clear | lose | win
+  var levelIdx = 0;
+  var pieces = [];
+  var hearts = 3;
+  var score = 0, levelStartScore = 0, streak = 0;
+  var exiting = [];   // {p, t, dur, dist, lastSpark}
+  var nudging = null; // {p, t, dur, amp}
+  var hint = null;    // {p, until}
+  var floats = [];    // {x, y, txt, t, color}
+  var particles = [];
+  var ambient = [];
+  var now = 0;
+
+  for (var ai = 0; ai < 14; ai++) {
+    ambient.push({ x: Math.random(), y: Math.random(), s: 2 + Math.random() * 3.5, v: 0.006 + Math.random() * 0.012, ph: Math.random() * 6.28 });
+  }
+
+  // HUD elements
+  var hud = document.getElementById('hud');
+  var levelBadge = document.getElementById('levelBadge');
+  var heartEls = document.querySelectorAll('#hearts .heart');
+  var scoreEl = document.getElementById('score');
+  var streakEl = document.getElementById('streak');
+
+  function setHearts(n, animateLoss) {
+    for (var i = 0; i < 3; i++) {
+      var el = heartEls[i];
+      var lost = i >= n;
+      if (lost && !el.classList.contains('lost')) {
+        el.classList.add('lost');
+        if (animateLoss) {
+          el.classList.remove('popping');
+          void el.offsetWidth;
+          el.classList.add('popping');
+        }
+      } else if (!lost) {
+        el.classList.remove('lost', 'popping');
+      }
+    }
+  }
+
+  function setScore(v, bump) {
+    score = v;
+    scoreEl.textContent = String(v);
+    if (bump) {
+      scoreEl.classList.remove('bump');
+      void scoreEl.offsetWidth;
+      scoreEl.classList.add('bump');
+    }
+    if (streak >= 2) {
+      streakEl.textContent = 'zen streak x' + Math.min(streak, 5);
+      streakEl.classList.add('on');
+    } else {
+      streakEl.classList.remove('on');
+    }
+  }
+
+  function show(id) {
+    var ids = ['titleScreen', 'clearScreen', 'loseScreen', 'winScreen'];
+    for (var i = 0; i < ids.length; i++) {
+      document.getElementById(ids[i]).classList.toggle('on', ids[i] === id);
+    }
+  }
+
+  function loadLevel(i) {
+    levelIdx = i;
+    var cfg = LEVELS[i];
+    pieces = genLevel(1000 + i * 77, cfg.count, cfg.lens);
+    exiting.length = 0;
+    nudging = null;
+    hint = null;
+    floats.length = 0;
+    hearts = 3;
+    streak = 0;
+    levelStartScore = score;
+    levelBadge.textContent = 'Level ' + (i + 1);
+    setHearts(3, false);
+    setScore(score, false);
+    state = 'play';
+    hud.classList.add('on');
+    show(null);
+  }
+
+  // ============================== gameplay ===============================
+  function pieceAt(r, c) {
+    for (var i = 0; i < pieces.length; i++) {
+      var cs = pieceCells(pieces[i]);
+      for (var j = 0; j < cs.length; j++) {
+        if (cs[j][0] === r && cs[j][1] === c) return pieces[i];
+      }
+    }
+    return null;
+  }
+
+  function safePieces() {
+    var out = [];
+    for (var i = 0; i < pieces.length; i++) {
+      if (pathInfo(pieces[i], pieces).clear) out.push(pieces[i]);
+    }
+    return out;
+  }
+
+  function tapPiece(p) {
+    if (state !== 'play' || nudging) return;
+    var info = pathInfo(p, pieces);
+    if (info.clear) {
+      // remove from board, animate off
+      pieces.splice(pieces.indexOf(p), 1);
+      var dist = info.free + p.len + 2.5;
+      exiting.push({ p: p, t: 0, dur: 260 + dist * 55, dist: dist, sparkAcc: 0 });
+      streak++;
+      var mult = Math.min(streak, 5);
+      var gain = 10 * p.len * mult;
+      setScore(score + gain, true);
+      var h = headCell(p);
+      floats.push({
+        x: board.x + (h[1] + 0.5) * board.cell,
+        y: board.y + (h[0] + 0.5) * board.cell,
+        txt: '+' + gain, t: 0, color: '#7fb98a'
+      });
+      if (hint && hint.p === p) hint = null;
+      if (pieces.length === 0) {
+        setTimeout(function () {
+          if (state !== 'play') return;
+          if (levelIdx >= LEVELS.length - 1) {
+            state = 'win';
+            document.getElementById('winScore').textContent = 'Final score: ' + score;
+            show('winScreen');
+          } else {
+            state = 'clear';
+            document.getElementById('clearTitle').textContent = 'Level ' + (levelIdx + 1) + ' cleared';
+            document.getElementById('clearScore').textContent = 'Score: ' + score;
+            show('clearScreen');
+          }
+          hud.classList.remove('on');
+        }, 950);
+      }
+    } else {
+      // blocked: gentle nudge + lose a heart
+      nudging = { p: p, t: 0, dur: 620, amp: Math.min(info.free + 0.22, 1.2) };
+      streak = 0;
+      hearts--;
+      setHearts(hearts, true);
+      setScore(score, false);
+      var hh = headCell(p);
+      floats.push({
+        x: board.x + (hh[1] + 0.5) * board.cell,
+        y: board.y + (hh[0] + 0.5) * board.cell,
+        txt: 'blocked', t: 0, color: '#d98a99'
+      });
+      if (hearts <= 0) {
+        setTimeout(function () {
+          if (state !== 'play') return;
+          state = 'lose';
+          hud.classList.remove('on');
+          show('loseScreen');
+        }, 800);
+      }
+    }
+  }
+
+  function showHint(prefer) {
+    var safe = safePieces();
+    if (!safe.length) return;
+    var pick = null;
+    if (prefer && safe.indexOf(prefer) >= 0) pick = prefer;
+    else pick = safe[(Math.random() * safe.length) | 0];
+    hint = { p: pick, until: now + 1800 };
+  }
+
+  // ============================== input ==================================
+  var press = null; // {x, y, piece, timer, long}
+  canvas.addEventListener('pointerdown', function (e) {
+    e.preventDefault();
+    if (state !== 'play') return;
+    var c = Math.floor((e.clientX - board.x) / board.cell);
+    var r = Math.floor((e.clientY - board.y) / board.cell);
+    var p = (r >= 0 && r < N && c >= 0 && c < N) ? pieceAt(r, c) : null;
+    press = { x: e.clientX, y: e.clientY, piece: p, long: false, timer: 0 };
+    press.timer = setTimeout(function () {
+      if (press) { press.long = true; showHint(press.piece); }
+    }, LONGPRESS_MS);
+  });
+  canvas.addEventListener('pointermove', function (e) {
+    if (!press) return;
+    if (Math.abs(e.clientX - press.x) > 14 || Math.abs(e.clientY - press.y) > 14) {
+      clearTimeout(press.timer);
+      press = null;
+    }
+  });
+  function endPress(e) {
+    if (!press) return;
+    clearTimeout(press.timer);
+    var wasLong = press.long, p = press.piece;
+    press = null;
+    if (!wasLong && p) tapPiece(p);
+  }
+  canvas.addEventListener('pointerup', endPress);
+  canvas.addEventListener('pointercancel', function () {
+    if (press) { clearTimeout(press.timer); press = null; }
+  });
+
+  document.getElementById('hintBtn').addEventListener('click', function () {
+    if (state === 'play') showHint(null);
+  });
+  document.getElementById('playBtn').addEventListener('click', function () {
+    score = 0;
+    loadLevel(0);
+  });
+  document.getElementById('nextBtn').addEventListener('click', function () {
+    loadLevel(levelIdx + 1);
+  });
+  document.getElementById('retryBtn').addEventListener('click', function () {
+    score = levelStartScore;
+    loadLevel(levelIdx);
+  });
+  document.getElementById('againBtn').addEventListener('click', function () {
+    score = 0;
+    loadLevel(0);
+  });
+
+  // ============================== particles ==============================
+  function spawnSparkle(x, y, big) {
+    var p = null;
+    for (var i = 0; i < particles.length; i++) {
+      if (!particles[i].on) { p = particles[i]; break; }
+    }
+    if (!p) {
+      if (particles.length > 90) return;
+      p = {}; particles.push(p);
+    }
+    p.on = true;
+    p.x = x; p.y = y;
+    var a = Math.random() * Math.PI * 2;
+    var sp = big ? 30 + Math.random() * 70 : 8 + Math.random() * 22;
+    p.vx = Math.cos(a) * sp; p.vy = Math.sin(a) * sp - (big ? 20 : 6);
+    p.life = 0;
+    p.maxLife = big ? 650 + Math.random() * 350 : 420 + Math.random() * 240;
+    p.scale = (big ? 0.26 : 0.13) + Math.random() * 0.12;
+    p.rot = Math.random() * Math.PI;
+    p.vr = (Math.random() - 0.5) * 3;
+  }
+
+  function burst(x, y, count, big) {
+    for (var i = 0; i < count; i++) spawnSparkle(x, y, big);
+  }
+
+  // ============================== drawing ================================
+  function roundRect(g, x, y, w, h, r) {
+    if (r > w / 2) r = w / 2;
+    if (r > h / 2) r = h / 2;
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+  }
+
+  function drawArrowGlyph(g, w, h) {
+    // right-pointing arrow centered in w x h (used by fallback path)
+    var L = w * 0.32, s = h * 0.16;
+    g.beginPath();
+    g.moveTo(-L, -s * 0.45);
+    g.lineTo(L * 0.25, -s * 0.45);
+    g.lineTo(L * 0.25, -s * 1.35);
+    g.lineTo(L, 0);
+    g.lineTo(L * 0.25, s * 1.35);
+    g.lineTo(L * 0.25, s * 0.45);
+    g.lineTo(-L, s * 0.45);
+    g.closePath();
+    g.fillStyle = '#ffffff';
+    g.fill();
+  }
+
+  // draws piece with its origin cell at (r + or, c + oc) in cell units
+  function drawPiece(p, or, oc, alpha, glow) {
+    var cs = board.cell;
+    var horiz = p.dir === 1 || p.dir === 3;
+    var wCells = horiz ? p.len : 1;
+    var hCells = horiz ? 1 : p.len;
+    var pad = cs * 0.06;
+    var x = board.x + (p.c + oc) * cs + pad;
+    var y = board.y + (p.r + or) * cs + pad;
+    var w = wCells * cs - pad * 2;
+    var h = hCells * cs - pad * 2;
+    var cx = x + w / 2, cy = y + h / 2;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    if (glow) {
+      ctx.shadowColor = 'rgba(143,201,176,0.95)';
+      ctx.shadowBlur = 14 + Math.sin(now / 130) * 7;
+    } else {
+      ctx.shadowColor = 'rgba(90,130,150,0.22)';
+      ctx.shadowBlur = 6;
+      ctx.shadowOffsetY = 3;
+    }
+
+    if (p.len === 1) {
+      var spr = tinted.single[p.tint];
+      if (spr) {
+        ctx.translate(cx, cy);
+        ctx.rotate(p.dir * Math.PI / 2); // sprite arrow points up
+        ctx.drawImage(spr, -w / 2, -h / 2, w, h);
+      } else {
+        roundRect(ctx, x, y, w, h, cs * 0.24);
+        ctx.fillStyle = FALL_SINGLE[p.tint];
+        ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.translate(cx, cy);
+        ctx.rotate((p.dir - 1) * Math.PI / 2); // glyph points right
+        drawArrowGlyph(ctx, w, h);
+      }
+    } else {
+      var sprL = tinted.long[p.tint];
+      var longAxis = p.len * cs - pad * 2;
+      var shortAxis = cs - pad * 2;
+      if (sprL) {
+        ctx.translate(cx, cy);
+        // long sprite arrow points right
+        if (p.dir === 0) ctx.rotate(-Math.PI / 2);
+        else if (p.dir === 2) ctx.rotate(Math.PI / 2);
+        else if (p.dir === 3) ctx.rotate(Math.PI);
+        ctx.drawImage(sprL, -longAxis / 2, -shortAxis / 2, longAxis, shortAxis);
+      } else {
+        roundRect(ctx, x, y, w, h, cs * 0.32);
+        ctx.fillStyle = FALL_LONG[p.tint];
+        ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.translate(cx, cy);
+        if (p.dir === 0) ctx.rotate(-Math.PI / 2);
+        else if (p.dir === 2) ctx.rotate(Math.PI / 2);
+        else if (p.dir === 3) ctx.rotate(Math.PI);
+        drawArrowGlyph(ctx, longAxis, shortAxis);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawBoardPanel() {
+    var cs = board.cell;
+    ctx.save();
+    ctx.shadowColor = 'rgba(90,130,150,0.16)';
+    ctx.shadowBlur = 24;
+    ctx.shadowOffsetY = 8;
+    roundRect(ctx, board.x - cs * 0.22, board.y - cs * 0.22, board.size + cs * 0.44, board.size + cs * 0.44, cs * 0.5);
+    ctx.fillStyle = 'rgba(255,255,255,0.42)';
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = 'rgba(255,255,255,0.38)';
+    for (var r = 0; r < N; r++) {
+      for (var c = 0; c < N; c++) {
+        var g = cs * 0.075;
+        roundRect(ctx, board.x + c * cs + g, board.y + r * cs + g, cs - g * 2, cs - g * 2, cs * 0.2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function easeInQuad(t) { return t * t; }
+
+  var lastTime = 0;
+  function frame(ts) {
+    requestAnimationFrame(frame);
+    if (!lastTime) lastTime = ts;
+    var dt = Math.min(ts - lastTime, 50);
+    lastTime = ts;
+    now = ts;
+
+    // ---- background ----
+    if (sprites.bg) {
+      var iw = sprites.bg.naturalWidth, ih = sprites.bg.naturalHeight;
+      var sc = Math.max(W / iw, H / ih);
+      ctx.drawImage(sprites.bg, (W - iw * sc) / 2, (H - ih * sc) / 2, iw * sc, ih * sc);
+    } else {
+      var grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, '#cfe6f2');
+      grad.addColorStop(1, '#f6ead8');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // ---- ambient drifting motes ----
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    for (var i = 0; i < ambient.length; i++) {
+      var m = ambient[i];
+      m.y -= m.v * dt / 16 / 100;
+      if (m.y < -0.02) { m.y = 1.02; m.x = Math.random(); }
+      var mx = m.x * W + Math.sin(now / 1400 + m.ph) * 10;
+      ctx.globalAlpha = 0.25 + 0.2 * Math.sin(now / 900 + m.ph);
+      ctx.beginPath();
+      ctx.arc(mx, m.y * H, m.s, 0, 6.283);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    if (state === 'title') return;
+
+    drawBoardPanel();
+
+    // ---- hint expiry ----
+    if (hint && now > hint.until) hint = null;
+
+    // ---- nudge animation ----
+    var nx = 0, ny = 0, nudgeP = null;
+    if (nudging) {
+      nudging.t += dt;
+      var nt = nudging.t / nudging.dur;
+      if (nt >= 1) {
+        nudging = null;
+      } else {
+        nudgeP = nudging.p;
+        var amp;
+        if (nt < 0.35) amp = (nt / 0.35) * nudging.amp;                       // glide forward
+        else amp = nudging.amp * (1 - (nt - 0.35) / 0.65) * (1 + 0.16 * Math.sin(nt * 42)); // settle back w/ shake
+        nx = DX[nudgeP.dir] * amp;
+        ny = DY[nudgeP.dir] * amp;
+      }
+    }
+
+    // ---- board pieces (idle breathing bob) ----
+    for (i = 0; i < pieces.length; i++) {
+      var p = pieces[i];
+      var bob = Math.sin(now / 1100 + (p.r * 3 + p.c) * 0.9) * 0.008;
+      var isN = p === nudgeP;
+      var isH = hint && hint.p === p;
+      drawPiece(p, (isN ? ny : 0) + bob, isN ? nx : 0, 1, isH);
+    }
+
+    // ---- exiting pieces ----
+    for (i = exiting.length - 1; i >= 0; i--) {
+      var ex = exiting[i];
+      ex.t += dt;
+      var t = Math.min(ex.t / ex.dur, 1);
+      var d = easeInQuad(t) * ex.dist;
+      var fade = t > 0.75 ? 1 - (t - 0.75) / 0.25 : 1;
+      drawPiece(ex.p, DY[ex.p.dir] * d, DX[ex.p.dir] * d, fade, false);
+      // sparkle trail
+      ex.sparkAcc += dt;
+      if (ex.sparkAcc > 55 && t < 0.85) {
+        ex.sparkAcc = 0;
+        var hc2 = headCell(ex.p);
+        var sx = board.x + (hc2[1] + 0.5 + DX[ex.p.dir] * d) * board.cell;
+        var sy = board.y + (hc2[0] + 0.5 + DY[ex.p.dir] * d) * board.cell;
+        spawnSparkle(sx, sy, false);
+      }
+      if (t >= 1) {
+        var hc3 = headCell(ex.p);
+        burst(
+          board.x + (hc3[1] + 0.5 + DX[ex.p.dir] * ex.dist * 0.55) * board.cell,
+          board.y + (hc3[0] + 0.5 + DY[ex.p.dir] * ex.dist * 0.55) * board.cell,
+          7, true
+        );
+        exiting.splice(i, 1);
+      }
+    }
+
+    // ---- particles ----
+    for (i = 0; i < particles.length; i++) {
+      var pt = particles[i];
+      if (!pt.on) continue;
+      pt.life += dt;
+      if (pt.life >= pt.maxLife) { pt.on = false; continue; }
+      var lt = pt.life / pt.maxLife;
+      pt.x += pt.vx * dt / 1000;
+      pt.y += pt.vy * dt / 1000;
+      pt.vy += 12 * dt / 1000;
+      pt.rot += pt.vr * dt / 1000;
+      ctx.save();
+      ctx.globalAlpha = (1 - lt) * 0.9;
+      ctx.translate(pt.x, pt.y);
+      ctx.rotate(pt.rot);
+      var ps = pt.scale * (1 - lt * 0.4);
+      if (sprites.sparkle) {
+        var sw = sprites.sparkle.width * ps, sh = sprites.sparkle.height * ps;
+        ctx.drawImage(sprites.sparkle, -sw / 2, -sh / 2, sw, sh);
+      } else {
+        ctx.fillStyle = '#fff2c8';
+        var rr = 26 * ps;
+        ctx.beginPath();
+        ctx.moveTo(0, -rr); ctx.quadraticCurveTo(rr * 0.2, -rr * 0.2, rr, 0);
+        ctx.quadraticCurveTo(rr * 0.2, rr * 0.2, 0, rr);
+        ctx.quadraticCurveTo(-rr * 0.2, rr * 0.2, -rr, 0);
+        ctx.quadraticCurveTo(-rr * 0.2, -rr * 0.2, 0, -rr);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // ---- floating texts ----
+    for (i = floats.length - 1; i >= 0; i--) {
+      var f = floats[i];
+      f.t += dt;
+      var ft = f.t / 1000;
+      if (ft >= 1) { floats.splice(i, 1); continue; }
+      ctx.save();
+      ctx.globalAlpha = ft < 0.7 ? 1 : (1 - ft) / 0.3;
+      ctx.font = '700 ' + Math.round(board.cell * 0.42) + 'px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = f.color;
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 4;
+      var fy = f.y - ft * board.cell * 0.9;
+      ctx.strokeText(f.txt, f.x, fy);
+      ctx.fillText(f.txt, f.x, fy);
+      ctx.restore();
+    }
+  }
+
+  // ============================== boot ===================================
+  loadArt().then(function () {
+    requestAnimationFrame(frame);
+  });
+  // in case art load hangs entirely, still start
+  setTimeout(function () {
+    if (!artReady) { artReady = true; requestAnimationFrame(frame); }
+  }, 7000);
+})();
+</script>
+</body>
+</html>

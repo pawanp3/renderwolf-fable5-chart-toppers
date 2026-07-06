@@ -1,0 +1,730 @@
+<!-- Inspired by the chart game "Smash Fest!" (physics cannon destruction) — working title: Carnival Cannon Crush -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Carnival Cannon Crush</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#1a0d2e; font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  #game { position:fixed; inset:0; touch-action:none; display:block; }
+  .overlay {
+    position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(20,8,40,.78); color:#fff; text-align:center; z-index:10; padding:24px;
+    -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px);
+  }
+  .hidden { display:none !important; }
+  .overlay h1 { font-size:44px; line-height:1.1; margin-bottom:10px; color:#ffd94a; text-shadow:0 3px 0 #a33c00, 0 6px 18px rgba(0,0,0,.5); }
+  .overlay h2 { font-size:36px; margin-bottom:12px; color:#ffd94a; text-shadow:0 3px 0 #a33c00; }
+  .overlay p  { font-size:17px; margin-bottom:8px; opacity:.92; max-width:320px; }
+  .big { font-size:26px !important; color:#8affc1; font-weight:700; }
+  .btn {
+    margin-top:22px; padding:16px 48px; min-height:56px; font-size:22px; font-weight:800; color:#4a1500;
+    background:linear-gradient(#ffe259,#ffa751); border:none; border-radius:32px; cursor:pointer;
+    box-shadow:0 5px 0 #b3541e, 0 10px 24px rgba(0,0,0,.45); touch-action:manipulation;
+    animation:pulse 1.4s ease-in-out infinite;
+  }
+  .btn:active { transform:translateY(3px); box-shadow:0 2px 0 #b3541e; animation:none; }
+  @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.06)} }
+  #titleIcon { width:120px; height:120px; border-radius:26px; margin-bottom:18px; box-shadow:0 8px 28px rgba(0,0,0,.55); animation:bob 2.2s ease-in-out infinite; }
+  @keyframes bob { 0%,100%{transform:translateY(0) rotate(-2deg)} 50%{transform:translateY(-10px) rotate(2deg)} }
+  #hud {
+    position:fixed; top:0; left:0; right:0; z-index:5; display:flex; align-items:center; justify-content:space-between;
+    padding:calc(env(safe-area-inset-top, 0px) + 10px) 14px 8px; pointer-events:none; color:#fff;
+    font-weight:800; text-shadow:0 2px 4px rgba(0,0,0,.6); font-size:17px;
+  }
+  #hudBalls { letter-spacing:3px; font-size:20px; color:#ffd94a; }
+  #retryBtn {
+    pointer-events:auto; min-width:44px; min-height:44px; padding:8px 16px; font-size:15px; font-weight:800;
+    color:#fff; background:rgba(0,0,0,.42); border:2px solid rgba(255,255,255,.55); border-radius:22px; cursor:pointer;
+  }
+  #retryBtn:active { background:rgba(255,255,255,.25); }
+  #hint { position:fixed; bottom:calc(env(safe-area-inset-bottom,0px) + 18px); left:0; right:0; text-align:center; color:#fff;
+    font-size:15px; font-weight:600; text-shadow:0 2px 4px rgba(0,0,0,.7); z-index:5; pointer-events:none;
+    animation:pulse 1.6s ease-in-out infinite; }
+</style>
+</head>
+<body>
+<a id="arcadeBack" href="../../" aria-label="Back to arcade" style="position:fixed;top:calc(8px + env(safe-area-inset-top));left:calc(8px + env(safe-area-inset-left));z-index:99999;display:flex;align-items:center;gap:4px;height:32px;padding:0 12px 0 8px;border-radius:999px;background:rgba(8,12,26,.62);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.18);color:#fff;font:800 12.5px -apple-system,BlinkMacSystemFont,sans-serif;text-decoration:none;-webkit-tap-highlight-color:transparent;">‹ Arcade</a>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="hudLevel">Lv 1/3</div>
+  <div id="hudBalls">&#9679;&#9679;&#9679;&#9679;&#9679;</div>
+  <div id="hudScore">0</div>
+  <button id="retryBtn" type="button">&#8635; Retry</button>
+</div>
+<div id="hint" class="hidden">Drag &amp; release to fire!</div>
+
+<div id="title" class="overlay">
+  <img id="titleIcon" src="assets/icon.png" alt="" onerror="this.style.display='none'">
+  <h1>Carnival Cannon Crush</h1>
+  <p>Drag to aim your cannon, release to fire.<br>Smash every jar and stone before your cannonballs run out!</p>
+  <button class="btn" id="startBtn" type="button">PLAY</button>
+</div>
+
+<div id="clear" class="overlay hidden">
+  <h2>Level Clear!</h2>
+  <p id="clearInfo"></p>
+  <button class="btn" id="nextBtn" type="button">NEXT LEVEL</button>
+</div>
+
+<div id="win" class="overlay hidden">
+  <h2>Festival Smashed!</h2>
+  <p>You cleared every level. The carnival will never be the same.</p>
+  <p class="big" id="winScore"></p>
+  <button class="btn" id="againBtn" type="button">PLAY AGAIN</button>
+</div>
+
+<div id="lose" class="overlay hidden">
+  <h2>Out of Cannonballs!</h2>
+  <p id="loseInfo"></p>
+  <button class="btn" id="loseBtn" type="button">RETRY LEVEL</button>
+</div>
+
+<script>
+(function(){
+"use strict";
+// ---------- constants ----------
+var VW = 400, VH = 711;           // logical world size (9:16)
+var GROUND = 640;                 // world y of ground surface
+var GRAV = 1500;                  // px/s^2
+var BALL_R = 11;
+var PIVOT = { x: 62, y: GROUND - 40 };  // cannon rotation pivot
+var MUZZLE_LEN = 54;
+var MAX_POWER = 1150, MIN_POWER = 260, POWER_K = 4.2;
+
+var canvas = document.getElementById('game');
+var ctx = canvas.getContext('2d');
+
+// ---------- asset loading + magenta keying ----------
+var SPR = { bg:null, cannon:null, jar:null, stone:null, ball:null };
+var SRC = { bg:'assets/bg-festival.png', cannon:'assets/cannon.png', jar:'assets/jar.png',
+            stone:'assets/stone.png', ball:'assets/cannonball.png' };
+var KEYED = { cannon:true, jar:true, stone:true, ball:true, bg:false };
+
+function keyMagenta(img){
+  var c = document.createElement('canvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  var x = c.getContext('2d');
+  x.drawImage(img, 0, 0);
+  try {
+    var d = x.getImageData(0, 0, c.width, c.height), p = d.data;
+    for (var i = 0; i < p.length; i += 4) {
+      var r = p[i], g = p[i+1], b = p[i+2];
+      if ((r > 200 && b > 200 && g < 120) ||
+          (r > 100 && b > 100 && g < Math.min(r, b) * 0.55)) p[i+3] = 0;
+    }
+    x.putImageData(d, 0, 0);
+  } catch (e) { /* keep unkeyed if imageData blocked (file://) */ }
+  return c;
+}
+
+function preload(done){
+  var keys = Object.keys(SRC), left = keys.length;
+  keys.forEach(function(k){
+    var img = new Image();
+    img.onload = function(){
+      SPR[k] = KEYED[k] ? keyMagenta(img) : img;
+      if (--left === 0) done();
+    };
+    img.onerror = function(){ SPR[k] = null; if (--left === 0) done(); };
+    img.src = SRC[k];
+  });
+}
+
+// ---------- sizing ----------
+var scale = 1, offX = 0, offY = 0, dpr = 1;
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var w = window.innerWidth, h = window.innerHeight;
+  canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+  scale = Math.min(w / VW, h / VH);
+  offX = (w - VW * scale) / 2;
+  offY = (h - VH * scale) / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+function toWorld(e){
+  var rect = canvas.getBoundingClientRect();
+  return { x: (e.clientX - rect.left - offX) / scale, y: (e.clientY - rect.top - offY) / scale };
+}
+
+// ---------- levels ----------
+// shelf: x,y = top-left of plank; obj: cx = center x, type, shelf index (or 'ground'), stack offset
+var LEVELS = [
+  { balls: 5,
+    shelves: [ {x:212, y:428, w:172, h:14}, {x:248, y:562, w:138, h:14} ],
+    objs: [ {t:'jar', s:0, cx:246}, {t:'jar', s:0, cx:300}, {t:'jar', s:0, cx:354},
+            {t:'jar', s:1, cx:286}, {t:'jar', s:1, cx:348} ] },
+  { balls: 5,
+    shelves: [ {x:198, y:382, w:188, h:14}, {x:238, y:528, w:150, h:14} ],
+    objs: [ {t:'jar', s:0, cx:232}, {t:'stone', s:0, cx:294}, {t:'jar', s:0, cx:356},
+            {t:'stone', s:1, cx:278}, {t:'jar', s:1, cx:348} ] },
+  { balls: 6,
+    shelves: [ {x:184, y:330, w:200, h:14}, {x:214, y:474, w:172, h:14} ],
+    objs: [ {t:'jar', s:0, cx:218}, {t:'jar', s:0, cx:282}, {t:'jar', s:0, cx:350},
+            {t:'stone', s:1, cx:250}, {t:'jar', s:1, cx:308}, {t:'stone', s:1, cx:362},
+            {t:'stone', s:'ground', cx:352}, {t:'jar', s:'ground', cx:352, stack:1} ] }
+];
+var SIZES = { jar:{w:40,h:48}, stone:{w:46,h:46} };
+
+// ---------- state ----------
+var mode = 'title';       // title | play | clear | win | lose
+var levelIdx = 0, score = 0, scoreAtLevelStart = 0;
+var ballsLeft = 0, shelves = [], objects = [], balls = [], parts = [], floats = [];
+var aiming = false, aimStart = null, aimCur = null;
+var settleT = 0, clearT = -1, shakeT = 0, muzzleT = 0, recoilT = 0;
+var cannonAngle = -Math.PI / 4;
+var nextId = 1;
+
+function makeObj(def, shelfArr){
+  var sz = SIZES[def.t], y;
+  if (def.s === 'ground') y = GROUND - sz.h / 2 - (def.stack ? SIZES.stone.h * def.stack : 0);
+  else y = shelfArr[def.s].y - sz.h / 2;
+  return { id: nextId++, t: def.t, x: def.cx, y: y, w: sz.w, h: sz.h,
+           vx: 0, vy: 0, rot: 0, vrot: 0, hp: def.t === 'stone' ? 2 : 1,
+           dead: false, flash: 0, rest: false };
+}
+
+function loadLevel(i){
+  var L = LEVELS[i];
+  shelves = L.shelves;
+  objects = L.objs.map(function(d){ return makeObj(d, L.shelves); });
+  balls = []; parts = []; floats = [];
+  ballsLeft = L.balls; settleT = 0; clearT = -1;
+  aiming = false; cannonAngle = -Math.PI / 4;
+  scoreAtLevelStart = score;
+  updateHUD();
+}
+
+// ---------- HUD / overlays ----------
+var $ = function(id){ return document.getElementById(id); };
+var overlays = ['title','clear','win','lose'];
+function showOverlay(name){
+  overlays.forEach(function(o){ $(o).classList.toggle('hidden', o !== name); });
+  $('hud').classList.toggle('hidden', name !== null && name !== '');
+  $('hint').classList.add('hidden');
+}
+function showPlayUI(){
+  overlays.forEach(function(o){ $(o).classList.add('hidden'); });
+  $('hud').classList.remove('hidden');
+  if (levelIdx === 0) $('hint').classList.remove('hidden');
+}
+function updateHUD(){
+  $('hudLevel').textContent = 'Lv ' + (levelIdx + 1) + '/3';
+  $('hudScore').textContent = score;
+  var s = '';
+  for (var i = 0; i < ballsLeft; i++) s += '●';
+  $('hudBalls').textContent = s || '—';
+}
+
+$('startBtn').addEventListener('click', function(){
+  levelIdx = 0; score = 0; loadLevel(0); mode = 'play'; showPlayUI();
+});
+$('nextBtn').addEventListener('click', function(){
+  levelIdx++; loadLevel(levelIdx); mode = 'play'; showPlayUI();
+});
+$('againBtn').addEventListener('click', function(){
+  levelIdx = 0; score = 0; loadLevel(0); mode = 'play'; showPlayUI();
+});
+$('loseBtn').addEventListener('click', function(){
+  score = scoreAtLevelStart; loadLevel(levelIdx); mode = 'play'; showPlayUI();
+});
+$('retryBtn').addEventListener('click', function(){
+  if (mode !== 'play') return;
+  score = scoreAtLevelStart; loadLevel(levelIdx);
+});
+
+// ---------- input ----------
+canvas.addEventListener('pointerdown', function(e){
+  if (mode !== 'play') return;
+  e.preventDefault();
+  $('hint').classList.add('hidden');
+  if (ballsLeft <= 0) return;
+  aiming = true; aimStart = toWorld(e); aimCur = aimStart;
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+});
+canvas.addEventListener('pointermove', function(e){
+  if (!aiming) return;
+  e.preventDefault();
+  aimCur = toWorld(e);
+});
+canvas.addEventListener('pointerup', function(e){
+  if (!aiming) return;
+  e.preventDefault();
+  aiming = false;
+  var v = aimVelocity(aimStart, toWorld(e));
+  if (v) fire(v);
+});
+canvas.addEventListener('pointercancel', function(){ aiming = false; });
+
+function aimVelocity(p0, p1){
+  var dx = p0.x - p1.x, dy = p0.y - p1.y;       // slingshot: drag away from target
+  var len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 16) return null;                     // too small: treat as tap
+  var pow = Math.min(MAX_POWER, Math.max(MIN_POWER, len * POWER_K));
+  var vx = dx / len * pow, vy = dy / len * pow;
+  if (vx < 60) vx = 60;                          // always fire rightward
+  return { vx: vx, vy: vy };
+}
+
+function fire(v){
+  if (ballsLeft <= 0 || mode !== 'play') return;
+  ballsLeft--;
+  cannonAngle = Math.atan2(v.vy, v.vx);
+  var mx = PIVOT.x + Math.cos(cannonAngle) * MUZZLE_LEN;
+  var my = PIVOT.y + Math.sin(cannonAngle) * MUZZLE_LEN;
+  balls.push({ x: mx, y: my, vx: v.vx, vy: v.vy, bounces: 0, dead: false,
+               spin: 0, life: 6, cd: {} });
+  muzzleT = 0.12; recoilT = 0.18; shakeT = Math.max(shakeT, 0.08);
+  updateHUD();
+}
+
+// ---------- physics helpers ----------
+function circleRectHit(cx, cy, r, rx, ry, rw, rh){
+  var px = Math.max(rx, Math.min(cx, rx + rw));
+  var py = Math.max(ry, Math.min(cy, ry + rh));
+  var dx = cx - px, dy = cy - py, d2 = dx * dx + dy * dy;
+  if (d2 > r * r) return null;
+  if (d2 > 0.0001) {
+    var d = Math.sqrt(d2);
+    return { nx: dx / d, ny: dy / d, pen: r - d };
+  }
+  // center inside rect: push out along smallest overlap
+  var left = cx - rx, right = rx + rw - cx, top = cy - ry, bot = ry + rh - cy;
+  var m = Math.min(left, right, top, bot);
+  if (m === top)   return { nx: 0, ny: -1, pen: top + r };
+  if (m === bot)   return { nx: 0, ny: 1,  pen: bot + r };
+  if (m === left)  return { nx: -1, ny: 0, pen: left + r };
+  return { nx: 1, ny: 0, pen: right + r };
+}
+
+function aabbOverlap(ax, ay, aw, ah, bx, by, bw, bh){
+  var ox = Math.min(ax + aw / 2, bx + bw / 2) - Math.max(ax - aw / 2, bx - bw / 2);
+  var oy = Math.min(ay + ah / 2, by + bh / 2) - Math.max(ay - ah / 2, by - bh / 2);
+  if (ox <= 0 || oy <= 0) return null;
+  return { ox: ox, oy: oy };
+}
+
+// ---------- destruction ----------
+var JAR_COLORS = ['#2fa9a2', '#ff8c37', '#1d7d79', '#ffd166'];
+var STONE_COLORS = ['#9aa0a6', '#7c8288', '#c3c8cc', '#666c72'];
+
+function breakObj(o){
+  if (o.dead) return;
+  o.dead = true;
+  score += 100;
+  addFloat(o.x, o.y - 30, '+100', '#8affc1');
+  var cols = o.t === 'jar' ? JAR_COLORS : STONE_COLORS;
+  for (var i = 0; i < 14; i++) {
+    var a = Math.random() * Math.PI * 2, sp = 120 + Math.random() * 300;
+    parts.push({ x: o.x, y: o.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 160,
+                 rot: Math.random() * 6, vr: (Math.random() - 0.5) * 14,
+                 size: 4 + Math.random() * 8, color: cols[i % cols.length],
+                 t: 0, life: 0.7 + Math.random() * 0.4 });
+  }
+  shakeT = Math.max(shakeT, o.t === 'stone' ? 0.2 : 0.12);
+  updateHUD();
+}
+
+function damageObj(o, hits){
+  if (o.dead) return;
+  o.hp -= hits;
+  o.flash = 0.14;
+  if (o.hp <= 0) breakObj(o);
+  else { addFloat(o.x, o.y - 34, 'CRACK!', '#ffd94a'); shakeT = Math.max(shakeT, 0.1); }
+}
+
+function addFloat(x, y, txt, color){
+  floats.push({ x: x, y: y, txt: txt, color: color, t: 0, life: 0.9 });
+}
+
+// ---------- simulation ----------
+function stepBall(b, dt){
+  b.vy += GRAV * dt;
+  b.x += b.vx * dt; b.y += b.vy * dt;
+  b.spin += b.vx * dt * 0.02;
+  b.life -= dt;
+
+  // objects
+  for (var i = 0; i < objects.length; i++) {
+    var o = objects[i];
+    if (o.dead) continue;
+    var h = circleRectHit(b.x, b.y, BALL_R, o.x - o.w / 2, o.y - o.h / 2, o.w, o.h);
+    if (!h) continue;
+    b.x += h.nx * h.pen; b.y += h.ny * h.pen;
+    var speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+    var now = b.life;
+    if (speed > 130 && (b.cd[o.id] === undefined || b.cd[o.id] - now > 0.25)) {
+      b.cd[o.id] = now;
+      // shove the object
+      o.vx += b.vx * 0.42; o.vy += b.vy * 0.42 - 90;
+      o.vrot = (Math.random() - 0.5) * 7;
+      o.rest = false;
+      damageObj(o, o.t === 'jar' ? 1 : 1);
+    }
+    // reflect ball, lose energy
+    var vn = b.vx * h.nx + b.vy * h.ny;
+    if (vn < 0) { b.vx -= (1.45) * vn * h.nx; b.vy -= (1.45) * vn * h.ny; }
+    b.vx *= 0.82; b.vy *= 0.82;
+  }
+
+  // shelves
+  for (var j = 0; j < shelves.length; j++) {
+    var s = shelves[j];
+    var hs = circleRectHit(b.x, b.y, BALL_R, s.x, s.y, s.w, s.h);
+    if (!hs) continue;
+    b.x += hs.nx * hs.pen; b.y += hs.ny * hs.pen;
+    var vns = b.vx * hs.nx + b.vy * hs.ny;
+    if (vns < 0) { b.vx -= 1.5 * vns * hs.nx; b.vy -= 1.5 * vns * hs.ny; }
+    b.vx *= 0.85; b.vy *= 0.85;
+  }
+
+  // ground
+  if (b.y + BALL_R > GROUND) {
+    b.y = GROUND - BALL_R;
+    if (b.vy > 60) { b.vy = -b.vy * 0.42; b.vx *= 0.75; b.bounces++; }
+    else { b.vy = 0; b.vx *= 0.92; }
+  }
+  var spd = Math.abs(b.vx) + Math.abs(b.vy);
+  if (b.x < -60 || b.x > VW + 60 || b.life <= 0 || b.bounces > 2 ||
+      (b.y + BALL_R >= GROUND - 0.5 && spd < 40)) b.dead = true;
+}
+
+function stepObj(o, dt){
+  o.flash = Math.max(0, o.flash - dt);
+  o.vy += GRAV * dt;
+  o.x += o.vx * dt; o.y += o.vy * dt;
+  var supported = false;
+
+  // ground
+  if (o.y + o.h / 2 > GROUND) {
+    var impact = o.vy;
+    o.y = GROUND - o.h / 2;
+    o.vy = impact > 120 ? -impact * 0.18 : 0;
+    o.vx *= 0.8; o.vrot *= 0.5;
+    supported = true;
+    impactCheck(o, impact);
+  }
+
+  // shelves
+  for (var j = 0; j < shelves.length; j++) {
+    var s = shelves[j];
+    var ov = aabbOverlap(o.x, o.y, o.w, o.h, s.x + s.w / 2, s.y + s.h / 2, s.w, s.h);
+    if (!ov) continue;
+    if (ov.oy <= ov.ox) {
+      if (o.y < s.y + s.h / 2) {         // on top
+        var imp = o.vy;
+        o.y -= ov.oy;
+        o.vy = imp > 120 ? -imp * 0.18 : 0;
+        o.vx *= 0.8; o.vrot *= 0.5;
+        supported = true;
+        impactCheck(o, imp);
+      } else { o.y += ov.oy; o.vy = Math.abs(o.vy) * 0.3; }
+    } else {
+      o.x += (o.x < s.x + s.w / 2 ? -ov.ox : ov.ox);
+      o.vx = -o.vx * 0.3;
+    }
+  }
+
+  if (!supported) o.rot += o.vrot * dt;
+  else { o.rot *= 0.85; if (Math.abs(o.vx) < 6) o.vx = 0; }
+  o.rest = supported && Math.abs(o.vx) < 6 && Math.abs(o.vy) < 6;
+  if (o.y - o.h / 2 > VH + 60) breakObj(o);   // fell off world = smashed
+}
+
+function impactCheck(o, impact){
+  if (o.t === 'jar' && impact > 430) breakObj(o);
+  else if (o.t === 'stone' && impact > 680) damageObj(o, 1);
+}
+
+function stepPairs(){
+  for (var i = 0; i < objects.length; i++) {
+    var a = objects[i];
+    if (a.dead) continue;
+    for (var j = i + 1; j < objects.length; j++) {
+      var b = objects[j];
+      if (b.dead) continue;
+      var ov = aabbOverlap(a.x, a.y, a.w, a.h, b.x, b.y, b.w, b.h);
+      if (!ov) continue;
+      var top, bot;
+      if (ov.oy <= ov.ox) {                    // vertical resolve
+        if (a.y < b.y) { top = a; bot = b; } else { top = b; bot = a; }
+        var rel = top.vy - bot.vy;
+        top.y -= ov.oy;
+        if (rel > 0) {
+          if (top.t === 'jar' && rel > 430) breakObj(top);
+          else if (top.t === 'stone' && rel > 680) damageObj(top, 1);
+          if (!top.dead && rel > 430 && bot.t === 'jar') breakObj(bot);
+          else if (!top.dead && rel > 680 && bot.t === 'stone') damageObj(bot, 1);
+          top.vy = bot.vy - rel * 0.15;
+          if (Math.abs(top.vy - bot.vy) < 70) top.vy = bot.vy;
+        }
+      } else {                                  // horizontal resolve
+        var l = a.x < b.x ? a : b, r = a.x < b.x ? b : a;
+        l.x -= ov.ox / 2; r.x += ov.ox / 2;
+        var rv = l.vx - r.vx;
+        if (rv > 0) {
+          l.vx -= rv * 0.6; r.vx += rv * 0.6;
+          if (rv > 380) { if (l.t === 'jar') breakObj(l); if (r.t === 'jar' && !r.dead) breakObj(r); }
+        }
+      }
+    }
+  }
+}
+
+function update(dt){
+  if (mode !== 'play' && mode !== 'clear') return;
+  muzzleT = Math.max(0, muzzleT - dt);
+  recoilT = Math.max(0, recoilT - dt);
+  shakeT = Math.max(0, shakeT - dt);
+
+  var sub = 2, sdt = dt / sub;
+  for (var s = 0; s < sub; s++) {
+    for (var i = 0; i < balls.length; i++) if (!balls[i].dead) stepBall(balls[i], sdt);
+    for (var k = 0; k < objects.length; k++) if (!objects[k].dead) stepObj(objects[k], sdt);
+    stepPairs();
+  }
+  for (var bi = balls.length - 1; bi >= 0; bi--) if (balls[bi].dead) balls.splice(bi, 1);
+
+  // particles / floats
+  for (var p = parts.length - 1; p >= 0; p--) {
+    var pt = parts[p];
+    pt.t += dt; pt.vy += GRAV * 0.8 * dt;
+    pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.rot += pt.vr * dt;
+    if (pt.t > pt.life) parts.splice(p, 1);
+  }
+  for (var f = floats.length - 1; f >= 0; f--) {
+    var fl = floats[f];
+    fl.t += dt; fl.y -= 46 * dt;
+    if (fl.t > fl.life) floats.splice(f, 1);
+  }
+
+  if (mode !== 'play') return;
+  var remaining = 0;
+  for (var oi = 0; oi < objects.length; oi++) if (!objects[oi].dead) remaining++;
+
+  if (remaining === 0) {
+    if (clearT < 0) clearT = 0;
+    clearT += dt;
+    if (clearT > 0.8) endLevel();
+  } else if (ballsLeft === 0 && balls.length === 0) {
+    settleT += dt;
+    var anyMoving = false;
+    for (var mi = 0; mi < objects.length; mi++) {
+      var mo = objects[mi];
+      if (!mo.dead && !mo.rest) { anyMoving = true; break; }
+    }
+    if (settleT > 2.2 && !anyMoving) {
+      mode = 'lose';
+      $('loseInfo').textContent = remaining + (remaining === 1 ? ' object' : ' objects') + ' survived. Take another shot!';
+      showOverlay('lose');
+    }
+  } else settleT = 0;
+}
+
+function endLevel(){
+  var bonus = ballsLeft * 50;
+  score += bonus;
+  updateHUD();
+  if (levelIdx >= LEVELS.length - 1) {
+    mode = 'win';
+    $('winScore').textContent = 'Final score: ' + score;
+    showOverlay('win');
+  } else {
+    mode = 'clear';
+    $('clearInfo').textContent = 'Everything smashed! +' + bonus + ' ball bonus — score ' + score;
+    showOverlay('clear');
+  }
+}
+
+// ---------- drawing ----------
+function drawBG(w, h){
+  if (SPR.bg) {
+    var iw = SPR.bg.naturalWidth || SPR.bg.width, ih = SPR.bg.naturalHeight || SPR.bg.height;
+    var s = Math.max(w / iw, h / ih);
+    ctx.drawImage(SPR.bg, (w - iw * s) / 2, (h - ih * s) / 2, iw * s, ih * s);
+  } else {
+    var g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, '#2b1a5e'); g.addColorStop(0.55, '#7a3fa0'); g.addColorStop(1, '#ff9d5c');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  }
+}
+
+function drawGround(){
+  ctx.fillStyle = 'rgba(74,38,18,.92)';
+  ctx.fillRect(-60 / scale, GROUND, VW + 120 / scale, VH - GROUND + 80);
+  ctx.fillStyle = '#8a5a2b';
+  ctx.fillRect(-60 / scale, GROUND, VW + 120 / scale, 7);
+}
+
+function drawShelf(s){
+  ctx.fillStyle = '#6e4118';
+  ctx.fillRect(s.x, s.y, s.w, s.h);
+  ctx.fillStyle = '#9c6428';
+  ctx.fillRect(s.x, s.y, s.w, 4);
+  ctx.fillStyle = 'rgba(0,0,0,.25)';
+  ctx.fillRect(s.x, s.y + s.h, s.w, 3);
+  // brackets
+  ctx.fillStyle = '#54310f';
+  ctx.fillRect(s.x + 6, s.y + s.h, 8, 14);
+  ctx.fillRect(s.x + s.w - 14, s.y + s.h, 8, 14);
+}
+
+function drawCannon(){
+  var recoil = recoilT > 0 ? Math.sin(recoilT / 0.18 * Math.PI) * 7 : 0;
+  ctx.save();
+  ctx.translate(PIVOT.x - Math.cos(cannonAngle) * recoil, PIVOT.y - Math.sin(cannonAngle) * recoil);
+  var visRot = Math.max(-0.55, Math.min(0.45, (cannonAngle + Math.PI / 4) * 0.55));
+  ctx.rotate(visRot);
+  if (SPR.cannon) ctx.drawImage(SPR.cannon, -58, -62, 116, 116);
+  else {
+    ctx.fillStyle = '#5b3b1d'; ctx.beginPath(); ctx.arc(6, 34, 18, 0, 7); ctx.fill();
+    ctx.save(); ctx.rotate(-Math.PI / 4);
+    ctx.fillStyle = '#c62f2f'; ctx.fillRect(-14, -16, 66, 32);
+    ctx.fillStyle = '#ffd94a'; ctx.fillRect(8, -16, 12, 32); ctx.fillRect(34, -16, 12, 32);
+    ctx.restore();
+  }
+  ctx.restore();
+  if (muzzleT > 0) {
+    var mx = PIVOT.x + Math.cos(cannonAngle) * (MUZZLE_LEN + 8);
+    var my = PIVOT.y + Math.sin(cannonAngle) * (MUZZLE_LEN + 8);
+    ctx.fillStyle = 'rgba(255,220,90,' + (muzzleT / 0.12) + ')';
+    ctx.beginPath(); ctx.arc(mx, my, 16 + (0.12 - muzzleT) * 160, 0, 7); ctx.fill();
+  }
+}
+
+function drawObj(o){
+  ctx.save();
+  ctx.translate(o.x, o.y);
+  ctx.rotate(o.rot);
+  var spr = o.t === 'jar' ? SPR.jar : SPR.stone;
+  var pad = 6;
+  if (spr) ctx.drawImage(spr, -o.w / 2 - pad, -o.h / 2 - pad, o.w + pad * 2, o.h + pad * 2);
+  else if (o.t === 'jar') {
+    ctx.fillStyle = '#2fa9a2';
+    ctx.beginPath();
+    if (ctx.roundRect) { ctx.roundRect(-o.w / 2, -o.h / 2, o.w, o.h, 12); ctx.fill(); }
+    else ctx.fillRect(-o.w / 2, -o.h / 2, o.w, o.h);
+    ctx.fillStyle = '#ff8c37'; ctx.fillRect(-o.w / 2, -6, o.w, 12);
+  } else {
+    ctx.fillStyle = '#8d9298'; ctx.beginPath(); ctx.arc(0, 0, o.w / 2, 0, 7); ctx.fill();
+    ctx.fillStyle = '#b9bec2'; ctx.beginPath(); ctx.arc(-6, -8, o.w / 5, 0, 7); ctx.fill();
+  }
+  if (o.t === 'stone' && o.hp === 1) {           // cracked look
+    ctx.strokeStyle = 'rgba(30,30,35,.85)'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-4, -o.h / 2 + 6); ctx.lineTo(3, -4); ctx.lineTo(-5, 6); ctx.lineTo(4, o.h / 2 - 6);
+    ctx.moveTo(3, -4); ctx.lineTo(14, 2);
+    ctx.stroke();
+  }
+  if (o.flash > 0) {
+    ctx.fillStyle = 'rgba(255,255,255,' + (o.flash / 0.14 * 0.75) + ')';
+    ctx.beginPath(); ctx.arc(0, 0, o.w * 0.62, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawBall(b){
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  ctx.rotate(b.spin);
+  if (SPR.ball) ctx.drawImage(SPR.ball, -BALL_R - 4, -BALL_R - 4, (BALL_R + 4) * 2, (BALL_R + 4) * 2);
+  else {
+    ctx.fillStyle = '#1c2340'; ctx.beginPath(); ctx.arc(0, 0, BALL_R, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.beginPath(); ctx.arc(-4, -4, 3.5, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawAim(){
+  if (!aiming || !aimStart || !aimCur) return;
+  var v = aimVelocity(aimStart, aimCur);
+  if (!v) return;
+  var ang = Math.atan2(v.vy, v.vx);
+  cannonAngle = ang;
+  var x = PIVOT.x + Math.cos(ang) * MUZZLE_LEN;
+  var y = PIVOT.y + Math.sin(ang) * MUZZLE_LEN;
+  var vx = v.vx, vy = v.vy, dt = 0.055;
+  ctx.fillStyle = '#fff';
+  for (var i = 0; i < 22; i++) {
+    x += vx * dt; y += vy * dt; vy += GRAV * dt;
+    if (y > GROUND) break;
+    ctx.globalAlpha = 0.9 - i * 0.038;
+    ctx.beginPath(); ctx.arc(x, y, 4.5 - i * 0.12, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  // power ring at muzzle
+  var powFrac = Math.min(1, Math.sqrt(v.vx * v.vx + v.vy * v.vy) / MAX_POWER);
+  ctx.strokeStyle = 'rgba(255,217,74,.9)'; ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(PIVOT.x, PIVOT.y, 30, -Math.PI / 2, -Math.PI / 2 + powFrac * Math.PI * 2);
+  ctx.stroke();
+}
+
+function render(){
+  var w = window.innerWidth, h = window.innerHeight;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  drawBG(w, h);
+
+  var sx = 0, sy = 0;
+  if (shakeT > 0) {
+    var m = shakeT * 26;
+    sx = (Math.random() - 0.5) * m; sy = (Math.random() - 0.5) * m;
+  }
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (offX + sx), dpr * (offY + sy));
+
+  drawGround();
+  for (var i = 0; i < shelves.length; i++) drawShelf(shelves[i]);
+  for (var j = 0; j < objects.length; j++) if (!objects[j].dead) drawObj(objects[j]);
+  drawCannon();
+  for (var k = 0; k < balls.length; k++) drawBall(balls[k]);
+
+  for (var p = 0; p < parts.length; p++) {
+    var pt = parts[p];
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, 1 - pt.t / pt.life);
+    ctx.translate(pt.x, pt.y); ctx.rotate(pt.rot);
+    ctx.fillStyle = pt.color;
+    ctx.fillRect(-pt.size / 2, -pt.size / 2, pt.size, pt.size);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+
+  drawAim();
+
+  ctx.textAlign = 'center'; ctx.font = '800 22px -apple-system, sans-serif';
+  for (var f = 0; f < floats.length; f++) {
+    var fl = floats[f];
+    ctx.globalAlpha = Math.max(0, 1 - fl.t / fl.life);
+    ctx.fillStyle = fl.color;
+    ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.lineWidth = 4;
+    ctx.strokeText(fl.txt, fl.x, fl.y);
+    ctx.fillText(fl.txt, fl.x, fl.y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ---------- main loop ----------
+var last = performance.now();
+function frame(t){
+  var dt = Math.min(0.033, (t - last) / 1000);
+  last = t;
+  update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+
+preload(function(){
+  loadLevel(0);          // so title screen shows the level behind the overlay
+  requestAnimationFrame(frame);
+});
+})();
+</script>
+</body>
+</html>

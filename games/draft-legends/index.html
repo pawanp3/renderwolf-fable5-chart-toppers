@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<!-- Inspired by the chart game "82-0.com" (spin-a-reel all-time draft + perfect-season sim) — working title: Perfect Season Draft -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Perfect Season Draft</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; }
+  body {
+    font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+    background: linear-gradient(180deg,#060a18 0%,#0b1230 55%,#1a1206 100%);
+    color:#f2ecdd;
+    user-select:none; -webkit-user-select:none;
+    touch-action:none;
+    position:fixed; inset:0;
+  }
+  #bg {
+    position:absolute; inset:0; background-size:cover; background-position:center bottom;
+    opacity:0; transition:opacity .6s;
+  }
+  #app {
+    position:relative; height:100%; max-width:520px; margin:0 auto;
+    display:flex; flex-direction:column;
+    padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px calc(env(safe-area-inset-bottom, 0px) + 12px);
+  }
+  .hidden { display:none !important; }
+
+  /* ---------- header ---------- */
+  #hdr { display:flex; justify-content:space-between; align-items:center; padding:4px 2px 8px; }
+  #hdr .ttl { font-weight:900; font-size:15px; letter-spacing:1.5px; color:#ffcf5e; text-transform:uppercase; }
+  #hdr .rnd { font-weight:800; font-size:13px; color:#9fb2e8; letter-spacing:.5px; }
+
+  /* ---------- lineup rail ---------- */
+  #rail { display:flex; gap:6px; justify-content:center; margin-bottom:10px; }
+  .slot {
+    flex:1; max-width:88px; aspect-ratio:3/4.2; border-radius:10px;
+    border:1.5px dashed rgba(255,207,94,.35);
+    background:rgba(10,16,40,.55);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:2px; position:relative; transition:transform .15s;
+  }
+  .slot.filled {
+    border:1.5px solid #ffcf5e; background-size:100% 100%; background-repeat:no-repeat;
+    box-shadow:0 3px 10px rgba(0,0,0,.5), 0 0 12px rgba(255,207,94,.18);
+  }
+  .slot.pop { animation:slotpop .45s ease; }
+  @keyframes slotpop { 0%{transform:scale(.6)} 55%{transform:scale(1.16)} 100%{transform:scale(1)} }
+  .slot .pos { font-size:11px; font-weight:900; color:#8fa2d8; letter-spacing:1px; }
+  .slot.filled .pos { color:#ffcf5e; text-shadow:0 1px 2px #000; }
+  .slot .mono {
+    width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-weight:900; font-size:12px; color:#0a0f24;
+  }
+  .slot .rtg { font-weight:900; font-size:15px; color:#fff; text-shadow:0 1px 2px #000; }
+  .slot .nm { font-size:8.5px; font-weight:700; color:#e8e2d2; text-shadow:0 1px 2px #000; text-align:center; line-height:1.1; padding:0 2px; }
+  .slot .q { font-size:20px; color:rgba(255,255,255,.18); font-weight:900; }
+
+  /* ---------- reel ---------- */
+  #reelWrap { position:relative; margin:2px auto 8px; width:min(88vw,340px); }
+  #reelImg { position:absolute; inset:-6%; background-size:100% 100%; pointer-events:none; opacity:.95; }
+  #reel {
+    position:relative; border-radius:18px; padding:16px 14px;
+    background:linear-gradient(180deg,#141b3d,#0a0f26);
+    border:2px solid #2b3768; box-shadow:0 8px 24px rgba(0,0,0,.55), inset 0 0 30px rgba(30,60,160,.25);
+    display:flex; flex-direction:column; gap:10px;
+  }
+  .rwin {
+    height:52px; border-radius:10px; overflow:hidden; position:relative;
+    background:linear-gradient(180deg,#04060f, #101736 50%, #04060f);
+    border:1.5px solid #3b4a8f; box-shadow:inset 0 0 14px rgba(0,0,0,.8);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .rwin .txt { font-weight:900; font-size:19px; letter-spacing:.5px; color:#fff; text-align:center; padding:0 6px; transition:none; }
+  .rwin.spin .txt { filter:blur(2px); opacity:.85; }
+  .rwin.lock { border-color:#ffcf5e; box-shadow:inset 0 0 14px rgba(0,0,0,.8), 0 0 14px rgba(255,207,94,.45); }
+  .rwin.lock .txt { color:#ffcf5e; animation:snap .3s ease; }
+  .rwin .lbl { position:absolute; top:2px; left:8px; font-size:8px; font-weight:800; letter-spacing:1.5px; color:#5d6ea8; }
+  @keyframes snap { 0%{transform:scale(1.25)} 100%{transform:scale(1)} }
+
+  /* ---------- draft cards ---------- */
+  #cards { display:flex; gap:8px; justify-content:center; flex:1; align-items:flex-start; padding-top:4px; min-height:0; }
+  .card {
+    flex:1; max-width:118px; aspect-ratio:3/4.3; border-radius:12px; position:relative;
+    background:linear-gradient(180deg,#20242e,#14161d); border:2px solid #caa53d;
+    background-size:100% 100%; background-repeat:no-repeat;
+    display:flex; flex-direction:column; align-items:center; padding:12% 6% 8%;
+    box-shadow:0 6px 18px rgba(0,0,0,.55);
+    transform:translateY(16px); opacity:0; transition:transform .25s, opacity .25s;
+    cursor:pointer;
+  }
+  .card.in { transform:translateY(0); opacity:1; }
+  .card.picked { transform:scale(1.08); border-color:#ffe08a; box-shadow:0 0 22px rgba(255,207,94,.6); z-index:2; }
+  .card.dim { opacity:.35; transform:scale(.94); }
+  .card .cmono {
+    width:44%; aspect-ratio:1; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-weight:900; font-size:17px; color:#0a0f24; margin-bottom:6%;
+    box-shadow:0 2px 6px rgba(0,0,0,.5);
+  }
+  .card .cnm { font-size:11px; font-weight:800; text-align:center; line-height:1.15; color:#fff; text-shadow:0 1px 2px #000; }
+  .card .cinfo { font-size:8.5px; color:#c9bfa4; margin-top:3px; text-align:center; text-shadow:0 1px 2px #000; }
+  .card .crtg {
+    margin-top:auto; font-weight:900; font-size:21px; color:#ffcf5e; text-shadow:0 1px 3px #000;
+    min-height:26px;
+  }
+  .card .crtg.mystery { color:rgba(255,255,255,.4); }
+  .card .tier { font-size:7.5px; font-weight:900; letter-spacing:1px; text-transform:uppercase; }
+
+  /* ---------- action button ---------- */
+  #actWrap { padding-top:6px; }
+  #actBtn {
+    width:100%; padding:16px; border:none; border-radius:16px; font-size:19px; font-weight:900;
+    letter-spacing:2px; color:#161001; cursor:pointer; text-transform:uppercase;
+    background:linear-gradient(180deg,#ffd977,#f0a92c);
+    box-shadow:0 5px 0 #9a6a10, 0 8px 20px rgba(240,169,44,.35);
+    transition:transform .1s, box-shadow .1s, filter .2s;
+    animation:pulse 1.6s ease-in-out infinite;
+  }
+  #actBtn:active { transform:translateY(4px); box-shadow:0 1px 0 #9a6a10; }
+  #actBtn:disabled { filter:grayscale(.8) brightness(.6); animation:none; box-shadow:0 5px 0 #333; }
+  @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.025)} }
+  #hint { text-align:center; font-size:11px; color:#8fa2d8; padding-top:8px; min-height:16px; font-weight:600; }
+
+  /* ---------- overlays ---------- */
+  .ovl {
+    position:absolute; inset:0; z-index:10; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center; padding:24px;
+    background:rgba(4,7,18,.9); backdrop-filter:blur(3px);
+  }
+  .bigTitle { font-size:34px; font-weight:900; letter-spacing:1px; line-height:1.05; color:#ffcf5e;
+    text-transform:uppercase; text-shadow:0 3px 12px rgba(240,169,44,.4); }
+  .sub { font-size:14px; color:#aeb9dd; margin-top:10px; max-width:300px; line-height:1.45; }
+  .btn {
+    margin-top:26px; padding:16px 44px; border:none; border-radius:16px; font-size:18px; font-weight:900;
+    letter-spacing:2px; color:#161001; cursor:pointer; text-transform:uppercase;
+    background:linear-gradient(180deg,#ffd977,#f0a92c);
+    box-shadow:0 5px 0 #9a6a10, 0 8px 20px rgba(240,169,44,.35);
+    animation:pulse 1.6s ease-in-out infinite;
+  }
+  .btn:active { transform:translateY(4px); box-shadow:0 1px 0 #9a6a10; }
+  #ballImg { width:110px; height:110px; background-size:contain; background-repeat:no-repeat; background-position:center;
+    margin-bottom:14px; animation:bob 2.4s ease-in-out infinite; }
+  @keyframes bob { 0%,100%{transform:translateY(0) rotate(-4deg)} 50%{transform:translateY(-12px) rotate(5deg)} }
+  .best { margin-top:14px; font-size:13px; font-weight:800; color:#7fe0a8; letter-spacing:1px; }
+
+  /* ---------- season sim ---------- */
+  #recBig { font-size:52px; font-weight:900; letter-spacing:1px; color:#fff; }
+  #recBig .w { color:#7fe0a8; } #recBig .l { color:#ff7b7b; }
+  #gameNo { font-size:12px; font-weight:800; color:#8fa2d8; letter-spacing:2px; margin-top:2px; }
+  #dots { display:grid; grid-template-columns:repeat(14, 14px); gap:5px; margin-top:20px; justify-content:center; }
+  #dots i { width:14px; height:14px; border-radius:4px; background:rgba(255,255,255,.08); transition:background .1s; }
+  #dots i.w { background:#39c97e; box-shadow:0 0 5px rgba(57,201,126,.6); }
+  #dots i.l { background:#e2504e; }
+  #simHint { margin-top:20px; font-size:11px; color:#6d7cae; font-weight:700; letter-spacing:1px; }
+  #perfectTag { margin-top:14px; font-size:13px; font-weight:900; letter-spacing:2px; color:#7fe0a8; min-height:18px; }
+  .shake { animation:shk .3s; }
+  @keyframes shk { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
+
+  /* ---------- end screen ---------- */
+  #gradeBox { margin-top:8px; width:96px; height:96px; border-radius:22px; display:flex; align-items:center; justify-content:center;
+    font-size:52px; font-weight:900; background:linear-gradient(180deg,#1c2650,#0d1330); border:2px solid #3b4a8f; }
+
+  /* ---------- floats / confetti ---------- */
+  .float {
+    position:absolute; font-weight:900; font-size:20px; color:#7fe0a8; text-shadow:0 2px 4px #000;
+    pointer-events:none; z-index:20; animation:fl .9s ease-out forwards;
+  }
+  @keyframes fl { 0%{opacity:1; transform:translateY(0) scale(1)} 100%{opacity:0; transform:translateY(-56px) scale(1.3)} }
+  .conf { position:absolute; top:-16px; width:10px; height:14px; z-index:30; pointer-events:none; animation:fall linear forwards; }
+  @keyframes fall { 0%{transform:translateY(-5vh) rotate(0)} 100%{transform:translateY(110vh) rotate(720deg)} }
+
+  /* ---------- review modal ---------- */
+  #modal { z-index:15; }
+  #modalCard { background:linear-gradient(180deg,#1c2650,#0d1330); border:2px solid #ffcf5e; border-radius:18px;
+    padding:22px 30px; max-width:290px; }
+  #modalCard h3 { color:#ffcf5e; font-size:19px; }
+  #modalCard p { color:#c6cfec; font-size:13px; margin-top:8px; line-height:1.5; }
+  #modalCard .r { font-size:38px; font-weight:900; color:#fff; margin-top:8px; }
+</style>
+</head>
+<body>
+<a id="arcadeBack" href="../../" aria-label="Back to arcade" style="position:fixed;top:calc(8px + env(safe-area-inset-top));left:calc(8px + env(safe-area-inset-left));z-index:99999;display:flex;align-items:center;gap:4px;height:32px;padding:0 12px 0 8px;border-radius:999px;background:rgba(8,12,26,.62);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.18);color:#fff;font:800 12.5px -apple-system,BlinkMacSystemFont,sans-serif;text-decoration:none;-webkit-tap-highlight-color:transparent;">‹ Arcade</a>
+<div id="bg"></div>
+<div id="app">
+
+  <!-- game screen -->
+  <div id="hdr">
+    <div class="ttl">Perfect Season Draft</div>
+    <div class="rnd" id="rndLbl">ROUND 1/5</div>
+  </div>
+  <div id="rail"></div>
+  <div id="reelWrap">
+    <div id="reelImg"></div>
+    <div id="reel">
+      <div class="rwin" id="rwTeam"><span class="lbl">TEAM</span><div class="txt" id="rtTeam">— ? —</div></div>
+      <div class="rwin" id="rwDec"><span class="lbl">ERA</span><div class="txt" id="rtDec">— ? —</div></div>
+    </div>
+  </div>
+  <div id="cards"></div>
+  <div id="hint"></div>
+  <div id="actWrap"><button id="actBtn">Spin</button></div>
+
+  <!-- title -->
+  <div class="ovl" id="scrTitle">
+    <div id="ballImg"></div>
+    <div class="bigTitle">Perfect<br>Season Draft</div>
+    <div class="sub">Spin the reel. Draft 5 legends from random teams &amp; eras. Then chase the immortal <b style="color:#ffcf5e">82&#8209;0</b> season.</div>
+    <div class="best" id="bestLbl"></div>
+    <button class="btn" id="startBtn">Start Draft</button>
+  </div>
+
+  <!-- season sim -->
+  <div class="ovl hidden" id="scrSim">
+    <div id="recBig"><span class="w" id="wN">0</span>&nbsp;–&nbsp;<span class="l" id="lN">0</span></div>
+    <div id="gameNo">GAME 0 OF 82</div>
+    <div id="perfectTag"></div>
+    <div id="dots"></div>
+    <div id="simHint">TAP ANYWHERE TO FAST-FORWARD</div>
+  </div>
+
+  <!-- end -->
+  <div class="ovl hidden" id="scrEnd">
+    <div class="sub" style="margin-top:0;letter-spacing:2px;font-weight:800">FINAL RECORD</div>
+    <div class="bigTitle" id="endRec">0–82</div>
+    <div id="gradeBox">F</div>
+    <div class="sub" id="endMsg"></div>
+    <div class="best" id="endBest"></div>
+    <button class="btn" id="againBtn">Draft Again</button>
+  </div>
+
+  <!-- pick review modal -->
+  <div class="ovl hidden" id="modal">
+    <div id="modalCard">
+      <h3 id="mNm"></h3>
+      <p id="mInfo"></p>
+      <div class="r" id="mRtg"></div>
+      <p style="font-size:10px;color:#6d7cae;margin-top:12px">TAP TO CLOSE</p>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ============ data ============ */
+var TEAMS = [
+  ['Rivertown','Comets','#f0a92c'],['Ironport','Anvils','#9aa7bd'],['Bayline','Hammerheads','#4fc3d9'],
+  ['Summit City','Yetis','#bfe6ff'],['Coppervale','Miners','#d97b3f'],['Northgate','Owls','#b9a7e8'],
+  ['Duskwood','Phantoms','#8f7bd9'],['Palmshore','Sunfish','#ffd45e'],['Steelbrook','Bison','#c98a5a'],
+  ['Cinder City','Dragons','#ff6f5e'],['Harborlight','Captains','#5ea8ff'],['Frostpeak','Foxes','#ff9e5e']
+];
+var DECADES = ['1960s','1970s','1980s','1990s','2000s','2010s','2020s'];
+var POSITIONS = ['PG','SG','SF','PF','C'];
+var FIRSTS = ['Ace','Bram','Cato','Dez','Emory','Flint','Gus','Holt','Ivo','Jett','Kade','Lem','Mose','Nico','Orin','Pax','Quill','Rocco','Sol','Tate','Ulric','Vance','Wade','Xavi','York','Zeb'];
+var LASTS = ['Ashby','Bexley','Crane','Duvall','Eastwick','Farrow','Grantham','Holloway','Ivers','Juneau','Klemm','Lockhart','Marsh','Nolby','Oakes','Pruitt','Quimby','Ransome','Stroud','Thorne','Underhill','Vexley','Wilder','Yates','Zephyr'];
+
+/* ============ pure logic (mirrored in tests) ============ */
+function rollRating(r1, r2) { // r1,r2 in [0,1)
+  if (r1 < 0.55) return Math.round(62 + r2 * 18);      // common 62–80
+  if (r1 < 0.85) return Math.round(80 + r2 * 10);      // rare 80–90
+  if (r1 < 0.97) return Math.round(90 + r2 * 7);       // epic 90–97
+  return Math.round(97 + r2 * 2);                      // legend 97–99
+}
+function tierOf(rtg) {
+  if (rtg >= 97) return ['LEGEND','#ffcf5e'];
+  if (rtg >= 90) return ['EPIC','#c78bff'];
+  if (rtg >= 80) return ['RARE','#5ec8ff'];
+  return ['PRO','#9fb2c8'];
+}
+function chemistryBonus(decades) { // array of decade strings
+  var counts = {}, bonus = 0, i;
+  for (i = 0; i < decades.length; i++) counts[decades[i]] = (counts[decades[i]] || 0) + 1;
+  for (var d in counts) if (counts[d] > 1) bonus += 6 * (counts[d] - 1);
+  return bonus;
+}
+function teamTotal(lineup) {
+  var sum = 0, decs = [], i;
+  for (i = 0; i < lineup.length; i++) { sum += lineup[i].rtg; decs.push(lineup[i].decade); }
+  return sum + chemistryBonus(decs);
+}
+function winProb(total) {
+  var x = (total - 290) / 200;
+  if (x < 0) x = 0; if (x > 1) x = 1;
+  var p = 0.05 + Math.pow(x, 1.35) * 0.93;
+  return Math.min(0.985, Math.max(0.03, p));
+}
+function simSeason(p, rng) {
+  var out = [], i;
+  for (i = 0; i < 82; i++) out.push(rng() < p);
+  return out;
+}
+function gradeOf(wins) {
+  if (wins >= 82) return ['82-0','PERFECT SEASON. IMMORTALITY.'];
+  if (wins >= 75) return ['S','A dynasty for the ages. So close to perfection.'];
+  if (wins >= 65) return ['A','Championship favorites. The city loves you.'];
+  if (wins >= 55) return ['B','A serious contender. One star short.'];
+  if (wins >= 45) return ['C','Playoff team. Talk radio is split.'];
+  if (wins >= 35) return ['D','Mediocrity. The fans want a rebuild.'];
+  return ['F','Historic disaster. Burn the draft board.'];
+}
+
+/* ============ assets ============ */
+var IMGS = { bg:'assets/bg-arena.png', card:'assets/card-frame.png', reel:'assets/reel-panel.png', ball:'assets/basketball.png' };
+var ART = {}; // name -> dataURL or null
+function keyMagenta(img) {
+  var c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+  var ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+  var id = ctx.getImageData(0, 0, c.width, c.height), d = id.data;
+  for (var i = 0; i < d.length; i += 4) {
+    if (d[i] > 200 && d[i+2] > 200 && d[i+1] < 120) d[i+3] = 0;
+  }
+  ctx.putImageData(id, 0, 0);
+  return c.toDataURL('image/png');
+}
+function loadArt(cb) {
+  var names = Object.keys(IMGS), left = names.length;
+  names.forEach(function (n) {
+    var img = new Image();
+    img.onload = function () {
+      try { ART[n] = (n === 'bg') ? IMGS[n] : keyMagenta(img); } catch (e) { ART[n] = IMGS[n]; }
+      if (--left === 0) cb();
+    };
+    img.onerror = function () { ART[n] = null; if (--left === 0) cb(); };
+    img.src = IMGS[n];
+  });
+}
+
+/* ============ state ============ */
+var S = {};
+function resetState() {
+  S = { round: 0, lineup: [], phase: 'ready', spun: null, wins: 0, losses: 0, perfectAlive: true, fast: false };
+}
+var $ = function (id) { return document.getElementById(id); };
+var railEl = $('rail'), cardsEl = $('cards'), actBtn = $('actBtn'), hintEl = $('hint');
+
+function initials(name) {
+  var p = name.split(' ');
+  return (p[0][0] || '') + (p[1] ? p[1][0] : '');
+}
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+/* ============ lineup rail ============ */
+function renderRail() {
+  railEl.innerHTML = '';
+  for (var i = 0; i < 5; i++) {
+    var s = document.createElement('div');
+    s.className = 'slot';
+    var pl = S.lineup[i];
+    if (pl) {
+      s.classList.add('filled');
+      if (ART.card) s.style.backgroundImage = 'url(' + ART.card + ')';
+      s.innerHTML = '<div class="pos">' + POSITIONS[i] + '</div>' +
+        '<div class="mono" style="background:' + pl.color + '">' + initials(pl.name) + '</div>' +
+        '<div class="rtg">' + pl.rtg + '</div>' +
+        '<div class="nm">' + pl.name + '</div>';
+      (function (idx) {
+        s.addEventListener('pointerdown', function (e) { e.stopPropagation(); showReview(idx); });
+      })(i);
+    } else {
+      s.innerHTML = '<div class="pos">' + POSITIONS[i] + '</div><div class="q">?</div>';
+    }
+    railEl.appendChild(s);
+  }
+}
+function showReview(idx) {
+  if (S.phase === 'simming') return;
+  var pl = S.lineup[idx];
+  $('mNm').textContent = pl.name;
+  $('mInfo').textContent = POSITIONS[idx] + ' · ' + pl.team + ' · ' + pl.decade + ' · ' + pl.tier[0];
+  $('mRtg').textContent = pl.rtg + ' OVR';
+  $('mRtg').style.color = pl.tier[1];
+  $('modal').classList.remove('hidden');
+}
+$('modal').addEventListener('pointerdown', function () { $('modal').classList.add('hidden'); });
+
+/* ============ reel spin ============ */
+var spinTimer = null;
+function startSpin() {
+  S.phase = 'spinning';
+  actBtn.disabled = true;
+  hintEl.textContent = '';
+  cardsEl.innerHTML = '';
+  var team = pick(TEAMS), decade = pick(DECADES);
+  var rwT = $('rwTeam'), rwD = $('rwDec'), rtT = $('rtTeam'), rtD = $('rtDec');
+  rwT.classList.remove('lock'); rwD.classList.remove('lock');
+  rwT.classList.add('spin'); rwD.classList.add('spin');
+  rtT.style.color = '#fff';
+  var t0 = Date.now(), teamDone = false;
+  spinTimer = setInterval(function () {
+    var el = Date.now() - t0;
+    if (!teamDone) { var tt = pick(TEAMS); rtT.textContent = tt[0] + ' ' + tt[1]; }
+    rtD.textContent = pick(DECADES);
+    if (el > 1000 && !teamDone) {
+      teamDone = true;
+      rtT.textContent = team[0] + ' ' + team[1];
+      rtT.style.color = team[2];
+      rwT.classList.remove('spin'); rwT.classList.add('lock');
+    }
+    if (el > 1650) {
+      clearInterval(spinTimer);
+      rtD.textContent = decade;
+      rwD.classList.remove('spin'); rwD.classList.add('lock');
+      S.spun = { team: team, decade: decade };
+      setTimeout(showCards, 350);
+    }
+  }, 55);
+}
+
+/* ============ draft cards ============ */
+function genCandidates() {
+  var t = S.spun.team, dec = S.spun.decade, used = {}, out = [];
+  while (out.length < 3) {
+    var nm = pick(FIRSTS) + ' ' + pick(LASTS);
+    if (used[nm]) continue;
+    used[nm] = 1;
+    var rtg = rollRating(Math.random(), Math.random());
+    out.push({ name: nm, rtg: rtg, tier: tierOf(rtg), team: t[0] + ' ' + t[1], color: t[2], decade: dec });
+  }
+  return out;
+}
+function showCards() {
+  S.phase = 'choosing';
+  var cands = genCandidates();
+  cardsEl.innerHTML = '';
+  hintEl.textContent = 'Draft your ' + POSITIONS[S.round] + ' — ratings are hidden!';
+  cands.forEach(function (pl, i) {
+    var c = document.createElement('div');
+    c.className = 'card';
+    if (ART.card) c.style.backgroundImage = 'url(' + ART.card + ')';
+    c.innerHTML = '<div class="cmono" style="background:' + pl.color + '">' + initials(pl.name) + '</div>' +
+      '<div class="cnm">' + pl.name + '</div>' +
+      '<div class="cinfo">' + pl.team + '<br>' + pl.decade + '</div>' +
+      '<div class="crtg mystery">??</div>';
+    c.addEventListener('pointerdown', function () { choose(cands, i, c); });
+    cardsEl.appendChild(c);
+    setTimeout(function () { c.classList.add('in'); }, 60 + i * 110);
+  });
+}
+function choose(cands, idx, cardEl) {
+  if (S.phase !== 'choosing') return;
+  S.phase = 'revealing';
+  var kids = cardsEl.children;
+  for (var i = 0; i < kids.length; i++) {
+    var r = kids[i].querySelector('.crtg');
+    r.classList.remove('mystery');
+    r.innerHTML = cands[i].rtg + ' <span class="tier" style="color:' + cands[i].tier[1] + '">' + cands[i].tier[0] + '</span>';
+    r.style.color = cands[i].tier[1];
+    if (i === idx) kids[i].classList.add('picked'); else kids[i].classList.add('dim');
+  }
+  var pl = cands[idx];
+  floatText('+' + pl.rtg, cardEl);
+  setTimeout(function () {
+    S.lineup.push(pl);
+    S.round++;
+    renderRail();
+    var lastSlot = railEl.children[S.round - 1];
+    if (lastSlot) lastSlot.classList.add('pop');
+    cardsEl.innerHTML = '';
+    if (S.round >= 5) {
+      S.phase = 'sim-ready';
+      $('rndLbl').textContent = 'LINEUP SET';
+      actBtn.textContent = 'Simulate Season';
+      actBtn.disabled = false;
+      hintEl.textContent = 'Team power: ' + teamTotal(S.lineup) + (chemBonusNow() > 0 ? ' (era chemistry +' + chemBonusNow() + '!)' : '');
+    } else {
+      S.phase = 'ready';
+      $('rndLbl').textContent = 'ROUND ' + (S.round + 1) + '/5';
+      actBtn.textContent = 'Spin';
+      actBtn.disabled = false;
+      hintEl.textContent = '';
+    }
+  }, 1000);
+}
+function chemBonusNow() {
+  var d = [];
+  for (var i = 0; i < S.lineup.length; i++) d.push(S.lineup[i].decade);
+  return chemistryBonus(d);
+}
+function floatText(txt, anchor) {
+  var f = document.createElement('div');
+  f.className = 'float';
+  f.textContent = txt;
+  var r = anchor.getBoundingClientRect();
+  f.style.left = (r.left + r.width / 2 - 20) + 'px';
+  f.style.top = (r.top + 10) + 'px';
+  document.body.appendChild(f);
+  setTimeout(function () { f.remove(); }, 950);
+}
+
+/* ============ season sim ============ */
+var simRes = [], simIdx = 0, lastTick = 0, acc = 0;
+function startSim() {
+  S.phase = 'simming';
+  var p = winProb(teamTotal(S.lineup));
+  simRes = simSeason(p, Math.random);
+  simIdx = 0; S.wins = 0; S.losses = 0; S.perfectAlive = true; S.fast = false;
+  $('wN').textContent = '0'; $('lN').textContent = '0';
+  $('gameNo').textContent = 'GAME 0 OF 82';
+  $('perfectTag').textContent = 'PERFECT SEASON ALIVE';
+  $('perfectTag').style.color = '#7fe0a8';
+  var dots = $('dots'); dots.innerHTML = '';
+  for (var i = 0; i < 82; i++) dots.appendChild(document.createElement('i'));
+  $('scrSim').classList.remove('hidden');
+  lastTick = performance.now(); acc = 0;
+  requestAnimationFrame(simFrame);
+}
+function simFrame(now) {
+  if (S.phase !== 'simming') return;
+  var rate = S.fast ? 60 : 11; // games per second
+  acc += (now - lastTick) / 1000 * rate;
+  lastTick = now;
+  var dots = $('dots').children;
+  while (acc >= 1 && simIdx < 82) {
+    acc -= 1;
+    var w = simRes[simIdx];
+    if (w) { S.wins++; dots[simIdx].className = 'w'; }
+    else {
+      S.losses++; dots[simIdx].className = 'l';
+      if (S.perfectAlive) {
+        S.perfectAlive = false;
+        $('perfectTag').textContent = 'PERFECT BID OVER — GAME ' + (simIdx + 1);
+        $('perfectTag').style.color = '#ff7b7b';
+        $('scrSim').classList.add('shake');
+        setTimeout(function () { $('scrSim').classList.remove('shake'); }, 320);
+      }
+    }
+    simIdx++;
+    $('wN').textContent = S.wins; $('lN').textContent = S.losses;
+    $('gameNo').textContent = 'GAME ' + simIdx + ' OF 82';
+  }
+  if (simIdx < 82) requestAnimationFrame(simFrame);
+  else setTimeout(endSeason, 700);
+}
+$('scrSim').addEventListener('pointerdown', function () { S.fast = true; });
+
+/* ============ end / records ============ */
+function bestRec() {
+  var v = null;
+  try { v = localStorage.getItem('psd-best'); } catch (e) {}
+  return v === null ? -1 : parseInt(v, 10);
+}
+function saveBest(w) {
+  try { if (w > bestRec()) localStorage.setItem('psd-best', String(w)); } catch (e) {}
+}
+function endSeason() {
+  S.phase = 'done';
+  var g = gradeOf(S.wins);
+  saveBest(S.wins);
+  $('scrSim').classList.add('hidden');
+  $('endRec').textContent = S.wins + '–' + S.losses;
+  $('gradeBox').textContent = g[0] === '82-0' ? '🏆' : g[0];
+  $('gradeBox').style.borderColor = S.wins >= 82 ? '#ffcf5e' : '#3b4a8f';
+  $('endMsg').textContent = g[1];
+  $('endBest').textContent = 'BEST RECORD: ' + Math.max(bestRec(), 0) + '–' + (82 - Math.max(bestRec(), 0));
+  $('scrEnd').classList.remove('hidden');
+  if (S.wins >= 82) confetti();
+}
+function confetti() {
+  var cols = ['#ffcf5e','#7fe0a8','#5ea8ff','#ff6f5e','#c78bff'];
+  for (var i = 0; i < 60; i++) {
+    var c = document.createElement('div');
+    c.className = 'conf';
+    c.style.left = Math.random() * 100 + 'vw';
+    c.style.background = cols[i % cols.length];
+    c.style.animationDuration = (1.6 + Math.random() * 1.8) + 's';
+    c.style.animationDelay = (Math.random() * 1.2) + 's';
+    document.body.appendChild(c);
+    (function (el) { setTimeout(function () { el.remove(); }, 4500); })(c);
+  }
+}
+
+/* ============ flow ============ */
+function newGame() {
+  resetState();
+  renderRail();
+  $('rndLbl').textContent = 'ROUND 1/5';
+  actBtn.textContent = 'Spin';
+  actBtn.disabled = false;
+  hintEl.textContent = 'Spin the reel to see which team & era you draft from.';
+  cardsEl.innerHTML = '';
+  $('rtTeam').textContent = '— ? —'; $('rtTeam').style.color = '#fff';
+  $('rtDec').textContent = '— ? —';
+  $('rwTeam').classList.remove('lock'); $('rwDec').classList.remove('lock');
+  $('scrEnd').classList.add('hidden');
+  $('scrSim').classList.add('hidden');
+}
+actBtn.addEventListener('pointerdown', function () {
+  if (actBtn.disabled) return;
+  if (S.phase === 'ready') startSpin();
+  else if (S.phase === 'sim-ready') startSim();
+});
+$('startBtn').addEventListener('pointerdown', function () {
+  $('scrTitle').classList.add('hidden');
+  newGame();
+});
+$('againBtn').addEventListener('pointerdown', function () { newGame(); });
+document.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false });
+
+/* ============ boot ============ */
+resetState();
+renderRail();
+loadArt(function () {
+  if (ART.bg) { $('bg').style.backgroundImage = 'url(' + ART.bg + ')'; $('bg').style.opacity = '0.55'; }
+  if (ART.reel) $('reelImg').style.backgroundImage = 'url(' + ART.reel + ')';
+  if (ART.ball) $('ballImg').style.backgroundImage = 'url(' + ART.ball + ')';
+  else $('ballImg').style.background = 'radial-gradient(circle at 35% 30%, #ff9e4a, #e2661d 70%)', $('ballImg').style.borderRadius = '50%';
+  var b = bestRec();
+  $('bestLbl').textContent = b >= 0 ? 'BEST RECORD: ' + b + '–' + (82 - b) : '';
+});
+</script>
+</body>
+</html>

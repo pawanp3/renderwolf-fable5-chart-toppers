@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<!-- Inspired by Fortnite (battle royale) — working title: Circle Down -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Circle Down</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#12142a;overflow:hidden;overscroll-behavior:none;
+    font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-user-select:none;user-select:none;}
+  #game{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;}
+  .overlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:rgba(14,12,36,0.82);color:#fff;text-align:center;z-index:10;padding:24px;}
+  .hidden{display:none!important;}
+  .overlay img.icon{width:112px;height:112px;border-radius:26px;box-shadow:0 8px 32px rgba(150,80,255,.55);
+    animation:bob 2.4s ease-in-out infinite;}
+  h1{font-size:44px;margin:18px 0 6px;letter-spacing:1px;
+     background:linear-gradient(180deg,#9ff1ff,#7f7bff);-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .sub{font-size:17px;color:#c9c6ff;max-width:300px;line-height:1.45;margin:0 0 26px;}
+  .big{font-size:64px;margin:6px 0;font-weight:800;}
+  .stat{font-size:20px;color:#cfe9ff;margin:4px 0;}
+  button{font-size:22px;font-weight:800;color:#151233;background:linear-gradient(180deg,#8dfc9b,#33d05f);
+    border:0;border-radius:18px;padding:18px 56px;min-height:56px;cursor:pointer;letter-spacing:1px;
+    box-shadow:0 6px 0 #1d8a3e,0 12px 26px rgba(0,0,0,.4);animation:pulse 1.6s ease-in-out infinite;touch-action:manipulation;}
+  button:active{transform:translateY(4px);box-shadow:0 2px 0 #1d8a3e;}
+  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+  #winTitle{background:linear-gradient(180deg,#ffe66d,#ff9f43);-webkit-background-clip:text;background-clip:text;color:transparent;}
+  #loseTitle{background:linear-gradient(180deg,#ff9db1,#ff4d6d);-webkit-background-clip:text;background-clip:text;color:transparent;}
+</style>
+</head>
+<body>
+<a id="arcadeBack" href="../../" aria-label="Back to arcade" style="position:fixed;top:calc(8px + env(safe-area-inset-top));left:calc(8px + env(safe-area-inset-left));z-index:99999;display:flex;align-items:center;gap:4px;height:32px;padding:0 12px 0 8px;border-radius:999px;background:rgba(8,12,26,.62);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.18);color:#fff;font:800 12.5px -apple-system,BlinkMacSystemFont,sans-serif;text-decoration:none;-webkit-tap-highlight-color:transparent;">‹ Arcade</a>
+<canvas id="game"></canvas>
+
+<div id="startScr" class="overlay">
+  <img class="icon" src="assets/icon.png" alt="" onerror="this.style.display='none'">
+  <h1>CIRCLE DOWN</h1>
+  <p class="sub">8 drop in. 1 walks out.<br>
+  Drag anywhere to move — your blaster fires on its own.<br>
+  Stay inside the circle, grab med kits, outlive them all!</p>
+  <button id="startBtn">DROP IN</button>
+</div>
+
+<div id="endScr" class="overlay hidden">
+  <h1 id="winTitle" class="hidden">LAST ONE STANDING!</h1>
+  <h1 id="loseTitle" class="hidden">KNOCKED OUT</h1>
+  <div class="big" id="placeTxt">#1 of 8</div>
+  <div class="stat" id="killsTxt">Knockouts: 0</div>
+  <div class="stat" id="scoreTxt">Score: 0</div>
+  <p class="sub" id="endTip"></p>
+  <button id="againBtn">PLAY AGAIN</button>
+</div>
+
+<script>
+'use strict';
+// ───────────────────────── constants ─────────────────────────
+const WORLD_W = 1080, WORLD_H = 1920;
+const FIELD = { x: 110, y: 190, w: 860, h: 1540 };            // playable green area inside bg border
+const N_FIGHTERS = 8, MAX_HP = 5, FIGHT_R = 26;
+const RANGE = 380, SHOT_CD = 0.5, BULLET_SPD = 560, BULLET_RANGE = 430;
+const PLAYER_SPD = 265, BOT_SPD = 228;
+const STORM_DPS = 1.0;
+const PHASES = [                                               // hold, then shrink to r
+  { hold: 5, shrink: 7, r: 820 },
+  { hold: 4, shrink: 7, r: 540 },
+  { hold: 4, shrink: 6, r: 330 },
+  { hold: 3, shrink: 6, r: 180 },
+  { hold: 3, shrink: 6, r: 80  },
+  { hold: 2, shrink: 12, r: 8  },
+];
+
+// ───────────────────────── pure helpers ─────────────────────────
+function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+function dist2(ax, ay, bx, by) { const dx = ax - bx, dy = ay - by; return dx * dx + dy * dy; }
+// circle vs axis-aligned rect: returns push-out vector or null
+function circleRectPush(cx, cy, cr, rx, ry, rw, rh) {
+  const nx = clamp(cx, rx, rx + rw), ny = clamp(cy, ry, ry + rh);
+  let dx = cx - nx, dy = cy - ny;
+  const d2 = dx * dx + dy * dy;
+  if (d2 >= cr * cr) return null;
+  if (d2 > 0.0001) {
+    const d = Math.sqrt(d2), p = (cr - d) / d;
+    return { x: dx * p, y: dy * p };
+  }
+  // centre inside rect: push out along smallest axis
+  const l = cx - rx, r = rx + rw - cx, t = cy - ry, b = ry + rh - cy;
+  const m = Math.min(l, r, t, b);
+  if (m === l) return { x: -(l + cr), y: 0 };
+  if (m === r) return { x: r + cr, y: 0 };
+  if (m === t) return { x: 0, y: -(t + cr) };
+  return { x: 0, y: b + cr };
+}
+// segment vs rect (Liang–Barsky) — used for line-of-sight through crates
+function segRectHit(x1, y1, x2, y2, rx, ry, rw, rh) {
+  const dx = x2 - x1, dy = y2 - y1;
+  let t0 = 0, t1 = 1;
+  for (let i = 0; i < 4; i++) {
+    let p, q;
+    if (i === 0) { p = -dx; q = x1 - rx; }
+    else if (i === 1) { p = dx; q = rx + rw - x1; }
+    else if (i === 2) { p = -dy; q = y1 - ry; }
+    else { p = dy; q = ry + rh - y1; }
+    if (p === 0) { if (q < 0) return false; }
+    else {
+      const r = q / p;
+      if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
+      else { if (r < t0) return false; if (r < t1) t1 = r; }
+    }
+  }
+  return true;
+}
+
+// ───────────────────────── canvas / view ─────────────────────────
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let dpr = 1, cssW = 0, cssH = 0, scale = 1, viewW = 0, viewH = 0;
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cssW = window.innerWidth; cssH = window.innerHeight;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  scale = Math.max(cssW / 620, cssH / 1500);
+  viewW = cssW / scale; viewH = cssH / scale;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ───────────────────────── assets (magenta-keyed) ─────────────────────────
+const SPRITES = {
+  bg:     { src: 'assets/bg_arena.png',       key: false },
+  player: { src: 'assets/player_pawn.png',    key: true  },
+  bot:    { src: 'assets/bot_pawn.png',       key: true  },
+  crate:  { src: 'assets/crate_obstacle.png', key: true  },
+  medkit: { src: 'assets/medkit.png',         key: true  },
+};
+function keyMagenta(img) {
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const g = c.getContext('2d');
+  g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, c.width, c.height), px = d.data;
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i] > 200 && px[i + 2] > 200 && px[i + 1] < 120) px[i + 3] = 0;
+  }
+  g.putImageData(d, 0, 0);
+  return c;
+}
+function loadAll() {
+  const jobs = Object.keys(SPRITES).map(k => new Promise(res => {
+    const s = SPRITES[k], img = new Image();
+    img.onload = () => { try { s.img = s.key ? keyMagenta(img) : img; s.ok = true; } catch (e) { s.ok = false; } res(); };
+    img.onerror = () => { s.ok = false; res(); };
+    img.src = s.src;
+  }));
+  return Promise.all(jobs);
+}
+
+// ───────────────────────── game state ─────────────────────────
+let state = 'title';                 // title | play | over
+let fighters = [], bullets = [], crates = [], medkits = [], parts = [], floaters = [];
+let storm, medTimer = 0, shakeT = 0, shakeMag = 0, elapsed = 0;
+let player = null, finalPlace = 8, camX = WORLD_W / 2, camY = WORLD_H / 2;
+
+function rnd(a, b) { return a + Math.random() * (b - a); }
+
+function pickNextZone(s) {
+  const ph = PHASES[s.phase];
+  if (!ph) { s.toR = s.r; s.toCx = s.cx; s.toCy = s.cy; s.done = true; return; }
+  const maxOff = Math.max(0, s.r - ph.r) * 0.7;
+  const a = Math.random() * Math.PI * 2, d = Math.random() * maxOff;
+  s.toR = ph.r;
+  s.toCx = clamp(s.cx + Math.cos(a) * d, FIELD.x + 60, FIELD.x + FIELD.w - 60);
+  s.toCy = clamp(s.cy + Math.sin(a) * d, FIELD.y + 60, FIELD.y + FIELD.h - 60);
+}
+function stormUpdate(s, dt) {
+  if (s.done) return;
+  const ph = PHASES[s.phase];
+  s.t += dt;
+  if (s.mode === 'hold') {
+    if (s.t >= ph.hold) { s.mode = 'shrink'; s.t = 0; s.fromR = s.r; s.fromCx = s.cx; s.fromCy = s.cy; }
+  } else {
+    const k = Math.min(1, s.t / ph.shrink);
+    s.r  = s.fromR  + (s.toR  - s.fromR)  * k;
+    s.cx = s.fromCx + (s.toCx - s.fromCx) * k;
+    s.cy = s.fromCy + (s.toCy - s.fromCy) * k;
+    if (k >= 1) { s.phase++; s.mode = 'hold'; s.t = 0; pickNextZone(s); }
+  }
+}
+
+function crateBlocksSeg(x1, y1, x2, y2) {
+  for (let i = 0; i < crates.length; i++) {
+    const c = crates[i];
+    if (segRectHit(x1, y1, x2, y2, c.x, c.y, c.w, c.h)) return true;
+  }
+  return false;
+}
+
+function reset() {
+  fighters = []; bullets = []; medkits = []; parts = []; floaters = [];
+  medTimer = 4; shakeT = 0; elapsed = 0;
+  const ccx = WORLD_W / 2, ccy = WORLD_H / 2;
+  // crates
+  crates = [];
+  let guard = 0;
+  while (crates.length < 9 && guard++ < 300) {
+    const s = rnd(80, 104);
+    const c = { x: rnd(FIELD.x + 30, FIELD.x + FIELD.w - 134), y: rnd(FIELD.y + 30, FIELD.y + FIELD.h - 134), w: s, h: s };
+    let ok = true;
+    for (const o of crates) {
+      if (c.x < o.x + o.w + 70 && c.x + c.w + 70 > o.x && c.y < o.y + o.h + 70 && c.y + c.h + 70 > o.y) { ok = false; break; }
+    }
+    if (ok) crates.push(c);
+  }
+  // fighters on a spawn ring
+  const ringR = 560;
+  for (let i = 0; i < N_FIGHTERS; i++) {
+    const a = (i / N_FIGHTERS) * Math.PI * 2 + Math.PI / 2;
+    const f = {
+      x: clamp(ccx + Math.cos(a) * ringR * 0.75, FIELD.x + 50, FIELD.x + FIELD.w - 50),
+      y: clamp(ccy + Math.sin(a) * ringR, FIELD.y + 50, FIELD.y + FIELD.h - 50),
+      hp: MAX_HP, alive: true, cool: rnd(0.3, 0.9), kills: 0,
+      isPlayer: i === 0, flash: 0, aim: -Math.PI / 2, faceL: false,
+      wtx: 0, wty: 0, wt: 0, strafe: Math.random() < 0.5 ? 1 : -1, strafeT: rnd(1, 2), bob: rnd(0, 6),
+    };
+    // keep spawns off crates
+    for (const c of crates) { const p = circleRectPush(f.x, f.y, FIGHT_R + 30, c.x, c.y, c.w, c.h); if (p) { f.x += p.x; f.y += p.y; } }
+    fighters.push(f);
+  }
+  player = fighters[0];
+  camX = player.x; camY = player.y;
+  storm = { cx: ccx + rnd(-80, 80), cy: ccy + rnd(-140, 140), r: 1150, phase: 0, mode: 'hold', t: 0, done: false };
+  pickNextZone(storm);
+  addFloater(player.x, player.y - 70, 'GO!', '#8dfc9b', 34);
+}
+
+// ───────────────────────── juice ─────────────────────────
+function burst(x, y, color, n, spd) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, v = rnd(spd * 0.3, spd);
+    parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rnd(0.3, 0.7), t: 0, color, size: rnd(4, 9) });
+  }
+}
+function addFloater(x, y, text, color, size) {
+  floaters.push({ x, y, text, color, size: size || 24, t: 0 });
+}
+function shake(mag, t) { shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, t); }
+
+// ───────────────────────── combat ─────────────────────────
+function nearestEnemy(f, needLOS) {
+  let best = null, bd = RANGE * RANGE;
+  for (const o of fighters) {
+    if (o === f || !o.alive) continue;
+    const d2 = dist2(f.x, f.y, o.x, o.y);
+    if (d2 < bd) {
+      if (needLOS && crateBlocksSeg(f.x, f.y, o.x, o.y)) continue;
+      bd = d2; best = o;
+    }
+  }
+  return best;
+}
+function shoot(f, target) {
+  let a = Math.atan2(target.y - f.y, target.x - f.x);
+  if (!f.isPlayer) a += rnd(-0.09, 0.09);
+  f.aim = a; f.faceL = Math.cos(a) < 0;
+  bullets.push({ x: f.x + Math.cos(a) * (FIGHT_R + 8), y: f.y + Math.sin(a) * (FIGHT_R + 8),
+    vx: Math.cos(a) * BULLET_SPD, vy: Math.sin(a) * BULLET_SPD, owner: f, d: 0 });
+  burst(f.x + Math.cos(a) * (FIGHT_R + 10), f.y + Math.sin(a) * (FIGHT_R + 10), f.isPlayer ? '#9ff1ff' : '#ffd166', 3, 90);
+}
+function aliveCount() { let n = 0; for (const f of fighters) if (f.alive) n++; return n; }
+
+function damage(f, amt, killer) {
+  if (!f.alive) return;
+  f.hp -= amt; f.flash = 0.18;
+  if (f.isPlayer) shake(7, 0.18);
+  if (f.hp <= 0) {
+    const placeAtDeath = aliveCount();       // includes f before removal
+    f.alive = false; f.hp = 0;
+    burst(f.x, f.y, f.isPlayer ? '#6ec6ff' : '#ffb26b', 26, 260);
+    burst(f.x, f.y, '#ffffff', 10, 160);
+    addFloater(f.x, f.y - 50, 'KO!', '#ff6d8a', 30);
+    if (killer && killer.alive) {
+      killer.kills++;
+      if (killer.isPlayer) addFloater(f.x, f.y - 90, '+1 KO', '#ffe66d', 26);
+    }
+    if (f.isPlayer) { finalPlace = placeAtDeath; endGame(false); }
+    else if (aliveCount() === 1 && player.alive) { finalPlace = 1; endGame(true); }
+  }
+}
+
+// ───────────────────────── bot AI ─────────────────────────
+function botThink(f, dt) {
+  f.wt -= dt; f.strafeT -= dt;
+  if (f.strafeT <= 0) { f.strafe = -f.strafe; f.strafeT = rnd(0.8, 2.2); }
+  const dStorm = Math.sqrt(dist2(f.x, f.y, storm.cx, storm.cy));
+  let mx = 0, my = 0;
+  const enemy = nearestEnemy(f, false);
+  if (dStorm > storm.r - 130) {
+    // flee storm: run toward safe centre
+    const a = Math.atan2(storm.cy - f.y, storm.cx - f.x);
+    mx = Math.cos(a); my = Math.sin(a);
+  } else if (f.hp <= 2.2 && medkits.length) {
+    // grab nearest medkit
+    let best = null, bd = 1e12;
+    for (const m of medkits) { const d2 = dist2(f.x, f.y, m.x, m.y); if (d2 < bd) { bd = d2; best = m; } }
+    const a = Math.atan2(best.y - f.y, best.x - f.x);
+    mx = Math.cos(a); my = Math.sin(a);
+  } else if (enemy) {
+    // orbit enemy at mid range
+    const a = Math.atan2(enemy.y - f.y, enemy.x - f.x);
+    const d = Math.sqrt(dist2(f.x, f.y, enemy.x, enemy.y));
+    const radial = d > 300 ? 0.8 : (d < 190 ? -0.9 : 0);
+    mx = Math.cos(a) * radial + Math.cos(a + Math.PI / 2) * f.strafe;
+    my = Math.sin(a) * radial + Math.sin(a + Math.PI / 2) * f.strafe;
+  } else {
+    // wander inside zone
+    if (f.wt <= 0 || dist2(f.x, f.y, f.wtx, f.wty) < 60 * 60) {
+      const a = Math.random() * Math.PI * 2, d = Math.random() * Math.max(60, storm.toR ? Math.min(storm.r, storm.toR) * 0.8 : storm.r * 0.8);
+      f.wtx = clamp(storm.cx + Math.cos(a) * d, FIELD.x + 40, FIELD.x + FIELD.w - 40);
+      f.wty = clamp(storm.cy + Math.sin(a) * d, FIELD.y + 40, FIELD.y + FIELD.h - 40);
+      f.wt = rnd(2, 4);
+    }
+    const a = Math.atan2(f.wty - f.y, f.wtx - f.x);
+    mx = Math.cos(a); my = Math.sin(a);
+  }
+  const len = Math.hypot(mx, my) || 1;
+  moveFighter(f, mx / len, my / len, BOT_SPD, dt);
+}
+
+function moveFighter(f, nx, ny, spd, dt) {
+  f.x += nx * spd * dt; f.y += ny * spd * dt;
+  f.x = clamp(f.x, FIELD.x + FIGHT_R, FIELD.x + FIELD.w - FIGHT_R);
+  f.y = clamp(f.y, FIELD.y + FIGHT_R, FIELD.y + FIELD.h - FIGHT_R);
+  for (const c of crates) {
+    const p = circleRectPush(f.x, f.y, FIGHT_R, c.x, c.y, c.w, c.h);
+    if (p) { f.x += p.x; f.y += p.y; }
+  }
+  if (nx !== 0) f.faceL = nx < 0;
+}
+
+// ───────────────────────── input ─────────────────────────
+const stick = { active: false, id: -1, ox: 0, oy: 0, dx: 0, dy: 0 };
+const keys = {};
+canvas.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  if (state !== 'play' || stick.active) return;
+  stick.active = true; stick.id = e.pointerId;
+  stick.ox = e.clientX; stick.oy = e.clientY; stick.dx = 0; stick.dy = 0;
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', e => {
+  if (!stick.active || e.pointerId !== stick.id) return;
+  e.preventDefault();
+  let dx = e.clientX - stick.ox, dy = e.clientY - stick.oy;
+  const d = Math.hypot(dx, dy), max = 62;
+  if (d > max) { dx = dx / d * max; dy = dy / d * max; }
+  stick.dx = dx; stick.dy = dy;
+});
+function stickEnd(e) { if (stick.active && e.pointerId === stick.id) { stick.active = false; stick.dx = 0; stick.dy = 0; } }
+canvas.addEventListener('pointerup', stickEnd);
+canvas.addEventListener('pointercancel', stickEnd);
+window.addEventListener('keydown', e => { keys[e.key] = true; });
+window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+// ───────────────────────── update ─────────────────────────
+function update(dt) {
+  elapsed += dt;
+  stormUpdate(storm, dt);
+
+  // player movement
+  if (player.alive) {
+    let mx = 0, my = 0;
+    if (stick.active && (stick.dx || stick.dy)) {
+      const d = Math.hypot(stick.dx, stick.dy);
+      if (d > 6) { mx = stick.dx / 62; my = stick.dy / 62; }
+    }
+    if (keys.ArrowLeft || keys.a) mx -= 1;
+    if (keys.ArrowRight || keys.d) mx += 1;
+    if (keys.ArrowUp || keys.w) my -= 1;
+    if (keys.ArrowDown || keys.s) my += 1;
+    const l = Math.hypot(mx, my);
+    if (l > 1) { mx /= l; my /= l; }
+    if (l > 0) moveFighter(player, mx, my, PLAYER_SPD * Math.min(1, l), dt);
+  }
+
+  // bots
+  for (const f of fighters) if (f.alive && !f.isPlayer) botThink(f, dt);
+
+  // separate fighters
+  for (let i = 0; i < fighters.length; i++) {
+    const a = fighters[i]; if (!a.alive) continue;
+    for (let j = i + 1; j < fighters.length; j++) {
+      const b = fighters[j]; if (!b.alive) continue;
+      const d2 = dist2(a.x, a.y, b.x, b.y), min = FIGHT_R * 2;
+      if (d2 < min * min && d2 > 0.001) {
+        const d = Math.sqrt(d2), push = (min - d) / 2, ux = (a.x - b.x) / d, uy = (a.y - b.y) / d;
+        a.x += ux * push; a.y += uy * push; b.x -= ux * push; b.y -= uy * push;
+      }
+    }
+  }
+
+  // auto-fire
+  for (const f of fighters) {
+    if (!f.alive) continue;
+    f.cool -= dt; f.flash = Math.max(0, f.flash - dt);
+    if (f.cool <= 0) {
+      const t = nearestEnemy(f, true);
+      if (t) { shoot(f, t); f.cool = SHOT_CD; }
+      else f.cool = 0.08;                     // re-check soon
+    }
+  }
+
+  // bullets
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    const step = BULLET_SPD * dt;
+    const px = b.x, py = b.y;
+    b.x += b.vx * dt; b.y += b.vy * dt; b.d += step;
+    let dead = b.d > BULLET_RANGE || b.x < FIELD.x - 20 || b.x > FIELD.x + FIELD.w + 20 || b.y < FIELD.y - 20 || b.y > FIELD.y + FIELD.h + 20;
+    if (!dead) {
+      for (const c of crates) {
+        if (segRectHit(px, py, b.x, b.y, c.x - 4, c.y - 4, c.w + 8, c.h + 8)) {
+          dead = true; burst(b.x, b.y, '#d9a066', 5, 120); break;
+        }
+      }
+    }
+    if (!dead) {
+      for (const f of fighters) {
+        if (!f.alive || f === b.owner) continue;
+        if (dist2(b.x, b.y, f.x, f.y) < (FIGHT_R + 7) * (FIGHT_R + 7)) {
+          dead = true;
+          burst(b.x, b.y, '#fff3b0', 7, 150);
+          damage(f, 1, b.owner);
+          break;
+        }
+      }
+    }
+    if (dead) bullets.splice(i, 1);
+  }
+
+  // storm damage
+  for (const f of fighters) {
+    if (!f.alive) continue;
+    if (dist2(f.x, f.y, storm.cx, storm.cy) > storm.r * storm.r) {
+      const was = Math.ceil(f.hp);
+      f.hp -= STORM_DPS * dt;
+      if (f.isPlayer && Math.ceil(f.hp) < was) addFloater(f.x, f.y - 60, '-1', '#c77dff', 24);
+      if (f.hp <= 0) damage(f, 0.001, null);   // finalize death via damage path
+    }
+  }
+  if (state !== 'play') return;
+
+  // medkits
+  medTimer -= dt;
+  if (medTimer <= 0 && medkits.length < 3 && storm.r > 120) {
+    medTimer = 5.5;
+    for (let tries = 0; tries < 24; tries++) {
+      const a = Math.random() * Math.PI * 2, d = Math.random() * storm.r * 0.72;
+      const x = clamp(storm.cx + Math.cos(a) * d, FIELD.x + 40, FIELD.x + FIELD.w - 40);
+      const y = clamp(storm.cy + Math.sin(a) * d, FIELD.y + 40, FIELD.y + FIELD.h - 40);
+      let ok = true;
+      for (const c of crates) if (circleRectPush(x, y, 40, c.x, c.y, c.w, c.h)) { ok = false; break; }
+      if (ok) { medkits.push({ x, y, t: rnd(0, 6) }); break; }
+    }
+  }
+  for (let i = medkits.length - 1; i >= 0; i--) {
+    const m = medkits[i]; m.t += dt;
+    for (const f of fighters) {
+      if (!f.alive || f.hp >= MAX_HP) continue;
+      if (dist2(f.x, f.y, m.x, m.y) < (FIGHT_R + 24) * (FIGHT_R + 24)) {
+        f.hp = Math.min(MAX_HP, f.hp + 2);
+        burst(m.x, m.y, '#7bed9f', 12, 160);
+        addFloater(m.x, m.y - 40, '+2 HP', '#7bed9f', 26);
+        medkits.splice(i, 1);
+        break;
+      }
+    }
+  }
+
+  // particles & floaters
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i]; p.t += dt;
+    if (p.t >= p.life) { parts.splice(i, 1); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.94; p.vy *= 0.94;
+  }
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    const fl = floaters[i]; fl.t += dt; fl.y -= 40 * dt;
+    if (fl.t > 1.1) floaters.splice(i, 1);
+  }
+  if (shakeT > 0) { shakeT -= dt; if (shakeT <= 0) shakeMag = 0; }
+
+  // camera follows player (or drifts to zone centre after death)
+  const tx = player.alive ? player.x : storm.cx, ty = player.alive ? player.y : storm.cy;
+  camX += (tx - camX) * Math.min(1, dt * 8);
+  camY += (ty - camY) * Math.min(1, dt * 8);
+}
+
+// ───────────────────────── draw ─────────────────────────
+function drawSprite(key, x, y, w, h, flip) {
+  const s = SPRITES[key];
+  if (s.ok) {
+    ctx.save();
+    ctx.translate(x, y);
+    if (flip) ctx.scale(-1, 1);
+    ctx.drawImage(s.img, -w / 2, -h / 2, w, h);
+    ctx.restore();
+    return true;
+  }
+  return false;
+}
+function drawFighter(f) {
+  const bobY = Math.sin(elapsed * 6 + f.bob) * 2;
+  // shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.beginPath(); ctx.ellipse(f.x, f.y + FIGHT_R - 2, FIGHT_R * 0.9, FIGHT_R * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+  const size = FIGHT_R * 2.6;
+  if (!drawSprite(f.isPlayer ? 'player' : 'bot', f.x, f.y + bobY - 6, size, size, f.faceL)) {
+    ctx.fillStyle = f.isPlayer ? '#3fa7ff' : '#ff8c42';
+    ctx.beginPath(); ctx.arc(f.x, f.y + bobY, FIGHT_R, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(f.x, f.y + bobY - 8, FIGHT_R * 0.55, 0, Math.PI * 2); ctx.fill();
+  }
+  if (f.flash > 0) {
+    ctx.globalAlpha = f.flash / 0.18 * 0.7;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(f.x, f.y + bobY - 4, FIGHT_R + 6, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  // hp bar
+  const bw = 56, bh = 8, bx = f.x - bw / 2, by = f.y - FIGHT_R - 34;
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+  const frac = clamp(f.hp / MAX_HP, 0, 1);
+  ctx.fillStyle = f.isPlayer ? (frac > 0.4 ? '#4cd964' : '#ff4d6d') : '#ffb26b';
+  ctx.fillRect(bx, by, bw * frac, bh);
+}
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function draw() {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#1b2545';
+  ctx.fillRect(0, 0, cssW, cssH);
+  if (state === 'title') return;
+
+  const hcx = camX, hcy = camY;
+  const vx = clamp(hcx, viewW / 2 > WORLD_W / 2 ? WORLD_W / 2 : viewW / 2, viewW / 2 > WORLD_W / 2 ? WORLD_W / 2 : WORLD_W - viewW / 2);
+  const vy = clamp(hcy, viewH / 2 > WORLD_H / 2 ? WORLD_H / 2 : viewH / 2, viewH / 2 > WORLD_H / 2 ? WORLD_H / 2 : WORLD_H - viewH / 2);
+  const shx = shakeT > 0 ? rnd(-shakeMag, shakeMag) : 0;
+  const shy = shakeT > 0 ? rnd(-shakeMag, shakeMag) : 0;
+  const vl = vx - viewW / 2, vt = vy - viewH / 2;
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (shx - vl * scale), dpr * (shy - vt * scale));
+
+  // background
+  const bg = SPRITES.bg;
+  if (bg.ok) ctx.drawImage(bg.img, 0, 0, WORLD_W, WORLD_H);
+  else {
+    ctx.fillStyle = '#57c24f'; ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    for (let i = 0; i < 10; i++) ctx.fillRect(i * 108, 0, 54, WORLD_H);
+    ctx.strokeStyle = '#3e7c9e'; ctx.lineWidth = 40; ctx.strokeRect(60, 140, WORLD_W - 120, WORLD_H - 280);
+  }
+
+  // medkits
+  for (const m of medkits) {
+    const pu = 1 + Math.sin(m.t * 4) * 0.08;
+    ctx.globalAlpha = 0.35 + Math.sin(m.t * 4) * 0.15;
+    ctx.fillStyle = '#7bed9f';
+    ctx.beginPath(); ctx.arc(m.x, m.y, 34, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    if (!drawSprite('medkit', m.x, m.y, 52 * pu, 52 * pu, false)) {
+      ctx.fillStyle = '#fff'; ctx.fillRect(m.x - 20, m.y - 16, 40, 32);
+      ctx.fillStyle = '#2ecc71'; ctx.fillRect(m.x - 4, m.y - 12, 8, 24); ctx.fillRect(m.x - 14, m.y - 4, 28, 8);
+    }
+  }
+
+  // crates
+  for (const c of crates) {
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillRect(c.x + 5, c.y + 8, c.w, c.h);
+    if (SPRITES.crate.ok) ctx.drawImage(SPRITES.crate.img, c.x - 5, c.y - 8, c.w + 10, c.h + 10);
+    else {
+      ctx.fillStyle = '#a5682a'; ctx.fillRect(c.x, c.y, c.w, c.h);
+      ctx.strokeStyle = '#7c4a17'; ctx.lineWidth = 5; ctx.strokeRect(c.x + 4, c.y + 4, c.w - 8, c.h - 8);
+    }
+  }
+
+  // bullets
+  for (const b of bullets) {
+    const mine = b.owner === player;
+    ctx.fillStyle = mine ? '#9ff1ff' : '#ffd166';
+    ctx.beginPath(); ctx.arc(b.x, b.y, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.beginPath(); ctx.arc(b.x, b.y, 3.5, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // fighters
+  for (const f of fighters) if (f.alive) drawFighter(f);
+
+  // particles
+  for (const p of parts) {
+    ctx.globalAlpha = 1 - p.t / p.life;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+  }
+  ctx.globalAlpha = 1;
+
+  // next-zone preview
+  if (!storm.done && storm.toR < storm.r - 4) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([14, 12]);
+    ctx.beginPath(); ctx.arc(storm.toCx, storm.toCy, storm.toR, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // storm overlay (evenodd hole)
+  ctx.fillStyle = 'rgba(124,58,205,0.38)';
+  ctx.beginPath();
+  ctx.rect(vl - 60, vt - 60, viewW + 120, viewH + 120);
+  ctx.arc(storm.cx, storm.cy, storm.r, 0, Math.PI * 2);
+  ctx.fill('evenodd');
+  const pul = 0.6 + Math.sin(elapsed * 5) * 0.3;
+  ctx.strokeStyle = 'rgba(190,120,255,' + pul.toFixed(2) + ')';
+  ctx.lineWidth = 9;
+  ctx.beginPath(); ctx.arc(storm.cx, storm.cy, storm.r, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.arc(storm.cx, storm.cy, storm.r, 0, Math.PI * 2); ctx.stroke();
+
+  // floaters
+  ctx.textAlign = 'center';
+  for (const fl of floaters) {
+    ctx.globalAlpha = 1 - Math.max(0, fl.t - 0.5) / 0.6;
+    ctx.font = '800 ' + fl.size + 'px -apple-system, sans-serif';
+    ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.strokeText(fl.text, fl.x, fl.y);
+    ctx.fillStyle = fl.color;
+    ctx.fillText(fl.text, fl.x, fl.y);
+  }
+  ctx.globalAlpha = 1;
+
+  // ── HUD (screen space) ──
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const safeTop = 12 + (window.visualViewport ? 0 : 0);
+  // top pill: alive + kills + zone timer
+  ctx.fillStyle = 'rgba(10,10,30,0.55)';
+  roundRect(cssW / 2 - 150, safeTop, 300, 54, 16); ctx.fill();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#fff';
+  ctx.font = '800 19px -apple-system, sans-serif';
+  ctx.fillText('ALIVE ' + aliveCount(), cssW / 2 - 88, safeTop + 24);
+  ctx.fillText('KO ' + player.kills, cssW / 2 + 92, safeTop + 24);
+  let zoneTxt, zoneCol = '#c9c6ff';
+  if (storm.done) { zoneTxt = 'FINAL ZONE'; zoneCol = '#ff8fa3'; }
+  else if (storm.mode === 'hold') zoneTxt = 'Zone shrinks in ' + Math.max(0, Math.ceil(PHASES[storm.phase].hold - storm.t)) + 's';
+  else { zoneTxt = 'ZONE SHRINKING'; zoneCol = '#ff8fa3'; }
+  ctx.font = '700 14px -apple-system, sans-serif';
+  ctx.fillStyle = zoneCol;
+  ctx.fillText(zoneTxt, cssW / 2, safeTop + 45);
+  // player hp
+  ctx.textAlign = 'left';
+  ctx.font = '800 15px -apple-system, sans-serif';
+  ctx.fillStyle = 'rgba(10,10,30,0.55)';
+  roundRect(12, safeTop, 128, 30, 10); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.fillText('HP', 22, safeTop + 21);
+  ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(48, safeTop + 9, 82, 12);
+  const pf = clamp(player.hp / MAX_HP, 0, 1);
+  ctx.fillStyle = pf > 0.4 ? '#4cd964' : '#ff4d6d';
+  ctx.fillRect(48, safeTop + 9, 82 * pf, 12);
+
+  // minimap
+  const mmW = 62, mmH = 110, mmX = cssW - mmW - 12, mmY = safeTop;
+  ctx.fillStyle = 'rgba(10,10,30,0.55)';
+  roundRect(mmX - 4, mmY - 4, mmW + 8, mmH + 8, 10); ctx.fill();
+  ctx.fillStyle = 'rgba(90,180,90,0.5)';
+  ctx.fillRect(mmX, mmY, mmW, mmH);
+  const sxm = mmW / WORLD_W, sym = mmH / WORLD_H;
+  ctx.strokeStyle = '#c77dff'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(mmX + storm.cx * sxm, mmY + storm.cy * sym, Math.max(2, storm.r * sxm), 0, Math.PI * 2); ctx.stroke();
+  for (const f of fighters) {
+    if (!f.alive) continue;
+    ctx.fillStyle = f.isPlayer ? '#4dc9ff' : '#ffb26b';
+    ctx.beginPath(); ctx.arc(mmX + f.x * sxm, mmY + f.y * sym, f.isPlayer ? 3.5 : 2.5, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // storm vignette when player outside
+  if (player.alive && dist2(player.x, player.y, storm.cx, storm.cy) > storm.r * storm.r) {
+    const a = 0.18 + Math.sin(elapsed * 9) * 0.08;
+    ctx.strokeStyle = 'rgba(190,80,255,' + a.toFixed(2) + ')';
+    ctx.lineWidth = 34;
+    ctx.strokeRect(0, 0, cssW, cssH);
+    ctx.textAlign = 'center';
+    ctx.font = '800 17px -apple-system, sans-serif';
+    ctx.fillStyle = '#e6b8ff';
+    ctx.fillText('GET TO THE CIRCLE!', cssW / 2, cssH * 0.2);
+  }
+
+  // joystick
+  if (stick.active) {
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.beginPath(); ctx.arc(stick.ox, stick.oy, 62, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(stick.ox, stick.oy, 62, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(stick.ox + stick.dx, stick.oy + stick.dy, 26, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  } else if (state === 'play' && elapsed < 4) {
+    ctx.textAlign = 'center';
+    ctx.globalAlpha = 0.55 + Math.sin(elapsed * 4) * 0.3;
+    ctx.font = '700 17px -apple-system, sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('Drag anywhere to move', cssW / 2, cssH - 90);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ───────────────────────── flow ─────────────────────────
+const startScr = document.getElementById('startScr');
+const endScr = document.getElementById('endScr');
+function endGame(won) {
+  state = 'over';
+  const score = player.kills * 100 + (N_FIGHTERS - finalPlace) * 50 + (won ? 200 : 0);
+  document.getElementById('winTitle').classList.toggle('hidden', !won);
+  document.getElementById('loseTitle').classList.toggle('hidden', won);
+  document.getElementById('placeTxt').textContent = '#' + finalPlace + ' of ' + N_FIGHTERS;
+  document.getElementById('killsTxt').textContent = 'Knockouts: ' + player.kills;
+  document.getElementById('scoreTxt').textContent = 'Score: ' + score;
+  document.getElementById('endTip').textContent = won
+    ? 'Flawless circle work. Run it back?'
+    : (finalPlace <= 3 ? 'So close! Hug cover and let the bots brawl.' : 'Tip: stay near the circle centre and grab med kits.');
+  if (won) shake(0, 0);
+  setTimeout(() => endScr.classList.remove('hidden'), won ? 700 : 900);
+}
+function startGame() {
+  startScr.classList.add('hidden');
+  endScr.classList.add('hidden');
+  finalPlace = N_FIGHTERS;
+  reset();
+  state = 'play';
+}
+document.getElementById('startBtn').addEventListener('click', startGame);
+document.getElementById('againBtn').addEventListener('click', startGame);
+
+// ───────────────────────── main loop ─────────────────────────
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.035, (now - last) / 1000);
+  last = now;
+  if (state !== 'title') update(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+loadAll().then(() => {
+  reset();               // pre-build so background shows behind title if desired
+  state = 'title';
+  requestAnimationFrame(frame);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<!-- Inspired by "Imposter Game - Party Edition" (App Store chart) — working title: Bluff Circle -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Bluff Circle</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background:#3b1163;
+    color:#fff;
+    user-select:none; -webkit-user-select:none; -webkit-touch-callout:none;
+    touch-action:manipulation;
+  }
+  #bg {
+    position:fixed; inset:0; z-index:0;
+    background:linear-gradient(160deg,#5b1a9e 0%,#8e24aa 45%,#d81b8c 100%);
+    background-size:cover; background-position:center;
+  }
+  #bg::after {
+    content:""; position:absolute; inset:0;
+    background:rgba(30,5,55,.35);
+  }
+  #app {
+    position:fixed; inset:0; z-index:1;
+    display:flex; flex-direction:column; align-items:center;
+    max-width:520px; margin:0 auto;
+    padding:calc(env(safe-area-inset-top,0px) + 16px) 20px calc(env(safe-area-inset-bottom,0px) + 16px);
+    height:100dvh;
+  }
+  .screen {
+    display:none; width:100%; flex:1; min-height:0;
+    flex-direction:column; align-items:center;
+    animation:fadeIn .3s ease both;
+  }
+  .screen.active { display:flex; }
+  @keyframes fadeIn { from{opacity:0; transform:translateY(12px);} to{opacity:1; transform:none;} }
+
+  h1.logo { font-size:44px; font-weight:900; letter-spacing:-1px; text-shadow:0 4px 0 rgba(0,0,0,.25); }
+  .tag { opacity:.85; margin-top:6px; font-size:16px; font-weight:600; }
+
+  .btn {
+    display:block; width:100%; border:none; cursor:pointer;
+    background:#ffc93c; color:#4a1272;
+    font-size:20px; font-weight:800; font-family:inherit;
+    padding:16px 20px; border-radius:18px;
+    box-shadow:0 5px 0 #d69a00, 0 8px 18px rgba(0,0,0,.3);
+    transition:transform .08s ease, box-shadow .08s ease, opacity .2s;
+    min-height:56px;
+  }
+  .btn:active { transform:translateY(4px); box-shadow:0 1px 0 #d69a00, 0 3px 8px rgba(0,0,0,.3); }
+  .btn.secondary { background:rgba(255,255,255,.16); color:#fff; box-shadow:0 5px 0 rgba(0,0,0,.25); }
+  .btn.secondary:active { box-shadow:0 1px 0 rgba(0,0,0,.25); }
+  .btn:disabled { opacity:.4; pointer-events:none; }
+  .btn.pulse { animation:pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{transform:scale(1);} 50%{transform:scale(1.04);} }
+
+  .panel {
+    width:100%; background:rgba(20,4,45,.55); border:1px solid rgba(255,255,255,.14);
+    border-radius:20px; padding:16px; backdrop-filter:blur(6px);
+  }
+  .label { font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:1.5px; opacity:.75; margin-bottom:10px; }
+
+  /* setup */
+  #screen-setup { overflow-y:auto; }
+  .stepper { display:flex; align-items:center; justify-content:center; gap:18px; }
+  .stepper button {
+    width:56px; height:56px; border-radius:50%; border:none; cursor:pointer;
+    background:#ffc93c; color:#4a1272; font-size:30px; font-weight:900; font-family:inherit;
+    box-shadow:0 4px 0 #d69a00; transition:transform .08s;
+  }
+  .stepper button:active { transform:translateY(3px); box-shadow:0 1px 0 #d69a00; }
+  .stepper .count { font-size:46px; font-weight:900; min-width:70px; text-align:center; }
+  #names { display:flex; flex-direction:column; gap:8px; margin-top:4px; }
+  #names input {
+    width:100%; border:none; border-radius:12px; padding:12px 14px;
+    font-size:17px; font-weight:700; font-family:inherit;
+    background:rgba(255,255,255,.92); color:#3b1163;
+    user-select:text; -webkit-user-select:text;
+  }
+  #cats { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .cat {
+    border:2px solid transparent; border-radius:14px; padding:13px 8px; cursor:pointer;
+    background:rgba(255,255,255,.14); color:#fff; font-size:15px; font-weight:800; font-family:inherit;
+    min-height:50px; transition:background .15s, border-color .15s, transform .1s;
+  }
+  .cat.sel { background:#ffc93c; color:#4a1272; border-color:#fff; transform:scale(1.03); }
+
+  /* pass screen */
+  .bigname { font-size:40px; font-weight:900; margin:10px 0 4px; text-align:center; word-break:break-word; }
+  .passemoji { font-size:72px; animation:bob 2s ease-in-out infinite; }
+  @keyframes bob { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-10px);} }
+
+  /* reveal card */
+  #card {
+    position:relative; width:min(78vw,300px); aspect-ratio:3/4;
+    border-radius:22px; cursor:pointer; touch-action:none;
+    box-shadow:0 12px 30px rgba(0,0,0,.45);
+    transition:transform .12s ease;
+  }
+  #card.holding { transform:scale(.97); }
+  #card .face {
+    position:absolute; inset:0; border-radius:22px; overflow:hidden;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    backface-visibility:hidden;
+  }
+  #card-backface { background:#4a1272; }
+  #card-backface img { width:100%; height:100%; object-fit:cover; pointer-events:none; }
+  #card-backface .fallback-q {
+    font-size:110px; font-weight:900; color:#fff;
+    width:100%; height:100%; display:flex; align-items:center; justify-content:center;
+    border:4px solid #ffc93c; border-radius:22px;
+  }
+  #card-front { background:#fff; color:#3b1163; opacity:0; transition:opacity .12s; padding:16px; text-align:center; }
+  #card.revealed #card-front { opacity:1; }
+  #card-front img.badge { width:110px; height:110px; margin-bottom:12px; }
+  #card-front .role-word { font-size:32px; font-weight:900; word-break:break-word; }
+  #card-front .role-sub { font-size:14px; font-weight:700; opacity:.65; margin-top:8px; }
+  #card-front.imposter { background:#ffe3e3; color:#a5102c; }
+  #holdbar { width:min(78vw,300px); height:8px; border-radius:4px; background:rgba(255,255,255,.2); margin-top:14px; overflow:hidden; }
+  #holdbar div { width:0%; height:100%; background:#ffc93c; border-radius:4px; }
+  .hint { font-size:14px; font-weight:700; opacity:.8; margin-top:10px; text-align:center; }
+
+  /* discussion */
+  .orderlist { display:flex; flex-direction:column; gap:6px; }
+  .orderlist .row {
+    display:flex; align-items:center; gap:10px;
+    background:rgba(255,255,255,.1); border-radius:12px; padding:10px 14px;
+    font-size:17px; font-weight:800;
+  }
+  .orderlist .row .num {
+    width:28px; height:28px; border-radius:50%; background:#ffc93c; color:#4a1272;
+    display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:900; flex:none;
+  }
+
+  /* vote */
+  #votebtns { display:flex; flex-direction:column; gap:9px; width:100%; }
+  .votebtn {
+    width:100%; border:none; cursor:pointer; border-radius:14px; padding:14px;
+    background:rgba(255,255,255,.92); color:#3b1163;
+    font-size:19px; font-weight:800; font-family:inherit; min-height:52px;
+    transition:transform .08s, background .15s;
+  }
+  .votebtn:active { transform:scale(.97); }
+  .votebtn.picked { background:#ffc93c; }
+  .votebtn:disabled { opacity:.35; pointer-events:none; }
+
+  /* result */
+  #result-banner { font-size:32px; font-weight:900; text-align:center; text-shadow:0 3px 0 rgba(0,0,0,.3); }
+  #result-badge { width:130px; height:130px; margin:8px 0; animation:popIn .45s cubic-bezier(.2,1.6,.4,1) both; }
+  @keyframes popIn { from{transform:scale(0) rotate(-20deg);} to{transform:scale(1) rotate(0);} }
+  .tallybars { display:flex; flex-direction:column; gap:6px; }
+  .tallyrow { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:700; }
+  .tallyrow .nm { width:86px; flex:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tallyrow .bar { height:16px; border-radius:8px; background:#ffc93c; min-width:4px; transition:width .6s ease; }
+  .tallyrow .bar.imp { background:#ff5470; }
+  .tallyrow .ct { opacity:.8; }
+  .scorelist { display:flex; flex-direction:column; gap:5px; }
+  .scorerow { display:flex; justify-content:space-between; font-size:16px; font-weight:800; padding:7px 12px; background:rgba(255,255,255,.09); border-radius:10px; position:relative; }
+  .scorerow .delta { color:#7dffa9; font-weight:900; margin-left:8px; animation:floatUp 1.4s ease both; display:inline-block; }
+  @keyframes floatUp { 0%{opacity:0; transform:translateY(8px);} 25%{opacity:1;} 100%{opacity:1; transform:translateY(0);} }
+
+  .spacer { flex:1; min-height:12px; }
+  .gap { height:14px; flex:none; }
+  .confetti { position:fixed; width:10px; height:14px; z-index:50; pointer-events:none; border-radius:2px; }
+  .footer-note { font-size:12px; opacity:.6; margin-top:10px; text-align:center; }
+</style>
+</head>
+<body>
+<a id="arcadeBack" href="../../" aria-label="Back to arcade" style="position:fixed;top:calc(8px + env(safe-area-inset-top));left:calc(8px + env(safe-area-inset-left));z-index:99999;display:flex;align-items:center;gap:4px;height:32px;padding:0 12px 0 8px;border-radius:999px;background:rgba(8,12,26,.62);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.18);color:#fff;font:800 12.5px -apple-system,BlinkMacSystemFont,sans-serif;text-decoration:none;-webkit-tap-highlight-color:transparent;">‹ Arcade</a>
+<div id="bg"></div>
+<div id="app">
+
+  <!-- TITLE -->
+  <div class="screen active" id="screen-title">
+    <div class="spacer"></div>
+    <div class="passemoji">🕵️</div>
+    <h1 class="logo">Bluff Circle</h1>
+    <div class="tag">One of you is faking it.</div>
+    <div class="gap"></div>
+    <div class="panel" style="text-align:center; font-size:15px; font-weight:600; line-height:1.5;">
+      Pass one phone around. Everyone secretly sees the same word — except the <b>imposter</b>. Give clues out loud, then vote out the faker!
+    </div>
+    <div class="spacer"></div>
+    <button class="btn pulse" id="btn-play">Play</button>
+    <div class="footer-note">3–10 players · one device · no peeking</div>
+  </div>
+
+  <!-- SETUP -->
+  <div class="screen" id="screen-setup">
+    <div class="panel">
+      <div class="label">Players</div>
+      <div class="stepper">
+        <button id="btn-minus" aria-label="fewer players">−</button>
+        <div class="count" id="count-label">4</div>
+        <button id="btn-plus" aria-label="more players">+</button>
+      </div>
+      <div class="gap"></div>
+      <div id="names"></div>
+    </div>
+    <div class="gap"></div>
+    <div class="panel">
+      <div class="label">Category</div>
+      <div id="cats"></div>
+    </div>
+    <div class="gap"></div>
+    <button class="btn pulse" id="btn-start">Deal the Cards</button>
+    <div class="gap"></div>
+  </div>
+
+  <!-- PASS (reveal phase) -->
+  <div class="screen" id="screen-pass">
+    <div class="spacer"></div>
+    <div class="passemoji">📲</div>
+    <div class="label" style="margin-top:12px;">Pass the phone to</div>
+    <div class="bigname" id="pass-name">Player 1</div>
+    <div class="hint">No one else should look!</div>
+    <div class="spacer"></div>
+    <button class="btn" id="btn-imhere">I'm <span id="pass-name2">Player 1</span> — show my card</button>
+  </div>
+
+  <!-- REVEAL -->
+  <div class="screen" id="screen-reveal">
+    <div class="label" style="margin-top:4px;" id="reveal-who">Player 1's secret card</div>
+    <div class="spacer"></div>
+    <div id="card">
+      <div class="face" id="card-backface"></div>
+      <div class="face" id="card-front">
+        <img class="badge" id="front-badge" alt="">
+        <div class="role-word" id="front-word"></div>
+        <div class="role-sub" id="front-sub"></div>
+      </div>
+    </div>
+    <div id="holdbar"><div id="holdfill"></div></div>
+    <div class="hint" id="reveal-hint">Hold the card to peek · release to hide</div>
+    <div class="spacer"></div>
+    <button class="btn" id="btn-gotit" disabled>Got it — hide &amp; pass on</button>
+  </div>
+
+  <!-- DISCUSSION -->
+  <div class="screen" id="screen-discuss">
+    <div class="passemoji" style="font-size:52px;">🗣️</div>
+    <div class="bigname" style="font-size:28px;">Clue Time!</div>
+    <div class="gap"></div>
+    <div class="panel">
+      <div class="label">Category: <span id="discuss-cat" style="color:#ffc93c;"></span></div>
+      <div style="font-size:14px; font-weight:600; line-height:1.5; opacity:.9;">
+        In this order, each player says <b>one clue</b> about the secret word. Imposter: bluff like your score depends on it (it does).
+      </div>
+    </div>
+    <div class="gap"></div>
+    <div class="panel">
+      <div class="label">Speaking order</div>
+      <div class="orderlist" id="orderlist"></div>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn pulse" id="btn-vote">Start the Vote</button>
+  </div>
+
+  <!-- VOTE PASS -->
+  <div class="screen" id="screen-votepass">
+    <div class="spacer"></div>
+    <div class="passemoji">🗳️</div>
+    <div class="label" style="margin-top:12px;">Pass the phone to</div>
+    <div class="bigname" id="votepass-name">Player 1</div>
+    <div class="hint">Time to point fingers.</div>
+    <div class="spacer"></div>
+    <button class="btn" id="btn-imvoter">I'm <span id="votepass-name2">Player 1</span> — let me vote</button>
+  </div>
+
+  <!-- VOTE -->
+  <div class="screen" id="screen-vote">
+    <div class="label" style="margin-top:4px;"><span id="vote-who">Player 1</span>, who is the imposter?</div>
+    <div class="gap"></div>
+    <div id="votebtns"></div>
+    <div class="spacer"></div>
+    <div class="footer-note">Your vote is secret until everyone has voted.</div>
+  </div>
+
+  <!-- RESULT -->
+  <div class="screen" id="screen-result" style="overflow-y:auto;">
+    <div id="result-banner">IMPOSTER CAUGHT!</div>
+    <img id="result-badge" alt="">
+    <div style="font-size:17px; font-weight:700; text-align:center;" id="result-text"></div>
+    <div class="gap"></div>
+    <div class="panel">
+      <div class="label">Votes</div>
+      <div class="tallybars" id="tallybars"></div>
+    </div>
+    <div class="gap"></div>
+    <div class="panel">
+      <div class="label">Scoreboard · Round <span id="round-label">1</span></div>
+      <div class="scorelist" id="scorelist"></div>
+    </div>
+    <div class="gap"></div>
+    <button class="btn pulse" id="btn-nextround">Next Round</button>
+    <div class="gap" style="height:9px;"></div>
+    <button class="btn secondary" id="btn-newgame">New Game</button>
+    <div class="gap"></div>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+
+/* ================= word lists ================= */
+const CATEGORIES = {
+  "Food & Drink": ["Pizza","Sushi","Pancakes","Tacos","Ice Cream","Spaghetti","Popcorn","Hot Dog","Cheese","Chocolate","Orange Juice","Burrito","Donut","Salad","Coffee","Watermelon","French Fries","Soup","Cupcake","Sandwich"],
+  "Animals": ["Elephant","Penguin","Kangaroo","Octopus","Giraffe","Hamster","Shark","Owl","Crocodile","Dolphin","Flamingo","Sloth","Bee","Camel","Panda","Snake","Rooster","Turtle","Wolf","Jellyfish"],
+  "Places": ["Beach","Airport","Library","Hospital","Circus","Desert","Castle","Supermarket","Gym","Space Station","Movie Theater","Farm","Jungle","School","Hair Salon","Museum","Submarine","Campsite","Casino","Ski Resort"],
+  "Jobs": ["Firefighter","Dentist","Pilot","Chef","Magician","Plumber","Teacher","Astronaut","Lifeguard","Detective","Barber","Farmer","DJ","Surgeon","Photographer","Clown","Judge","Mail Carrier","Zookeeper","Programmer"],
+  "Everyday Things": ["Umbrella","Toothbrush","Pillow","Ladder","Mirror","Backpack","Candle","Scissors","Vacuum","Remote Control","Sunglasses","Stapler","Blanket","Alarm Clock","Shampoo","Wallet","Headphones","Fridge","Doorbell","Trampoline"]
+};
+const CAT_NAMES = Object.keys(CATEGORIES);
+
+/* ================= pure logic (tested in scratch bluffcircle-logic.mjs) ================= */
+function tallyVotes(votes, n) {
+  const tally = new Array(n).fill(0);
+  for (const v of votes) if (v >= 0 && v < n) tally[v]++;
+  return tally;
+}
+function resolveRound(votes, n, imposterIdx) {
+  const tally = tallyVotes(votes, n);
+  const max = Math.max(...tally);
+  const top = [];
+  for (let i = 0; i < n; i++) if (tally[i] === max) top.push(i);
+  const crewWins = top.length === 1 && top[0] === imposterIdx;
+  return { tally, top, crewWins };
+}
+function applyScores(scores, imposterIdx, crewWins) {
+  const out = scores.slice();
+  if (crewWins) {
+    for (let i = 0; i < out.length; i++) if (i !== imposterIdx) out[i] += 2;
+  } else {
+    out[imposterIdx] += 3;
+  }
+  return out;
+}
+function shuffled(arr, rng = Math.random) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/* ================= asset loading (magenta keying + fallbacks) ================= */
+const ASSETS = {
+  bg:       { src: "assets/bg-party.png",       key: false },
+  cardBack: { src: "assets/card-back.png",       key: true  },
+  imposter: { src: "assets/imposter-badge.png",  key: true  },
+  crew:     { src: "assets/crew-badge.png",      key: true  }
+};
+const artURL = {}; // name -> dataURL/objectURL (or null if failed)
+
+function keyMagenta(img) {
+  const c = document.createElement("canvas");
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const ctx = c.getContext("2d");
+  ctx.drawImage(img, 0, 0);
+  const d = ctx.getImageData(0, 0, c.width, c.height);
+  const px = d.data;
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i] > 200 && px[i + 2] > 200 && px[i + 1] < 120) px[i + 3] = 0;
+  }
+  ctx.putImageData(d, 0, 0);
+  return c.toDataURL("image/png");
+}
+function loadOne(name, spec) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try { artURL[name] = spec.key ? keyMagenta(img) : spec.src; }
+      catch (e) { artURL[name] = spec.src; } // canvas tainted (file://) — use raw image
+      resolve();
+    };
+    img.onerror = () => { artURL[name] = null; resolve(); };
+    img.src = spec.src;
+  });
+}
+const artReady = Promise.all(Object.entries(ASSETS).map(([n, s]) => loadOne(n, s)));
+
+/* ================= state ================= */
+const S = {
+  n: 4,
+  names: [],
+  category: CAT_NAMES[0],
+  scores: [],
+  round: 0,
+  word: "",
+  imposter: -1,
+  revealIdx: 0,   // whose card is being shown
+  voteOrder: [],
+  voteIdx: 0,
+  votes: []
+};
+
+/* ================= helpers ================= */
+const $ = (id) => document.getElementById(id);
+function show(id) {
+  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+  const el = $(id);
+  el.classList.remove("active");
+  void el.offsetWidth; // restart fade-in animation
+  el.classList.add("active");
+}
+function esc(t) { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; }
+function playerName(i) { return S.names[i] || ("Player " + (i + 1)); }
+
+/* ================= setup screen ================= */
+function buildNameInputs() {
+  const wrap = $("names");
+  const prev = [...wrap.querySelectorAll("input")].map((el) => el.value);
+  wrap.innerHTML = "";
+  for (let i = 0; i < S.n; i++) {
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.maxLength = 14;
+    inp.placeholder = "Player " + (i + 1);
+    inp.autocomplete = "off";
+    if (prev[i]) inp.value = prev[i];
+    wrap.appendChild(inp);
+  }
+  $("count-label").textContent = S.n;
+}
+function buildCats() {
+  const wrap = $("cats");
+  wrap.innerHTML = "";
+  const all = CAT_NAMES.concat(["🎲 Random"]);
+  all.forEach((c) => {
+    const b = document.createElement("button");
+    b.className = "cat" + (c === S.category ? " sel" : "");
+    b.textContent = c;
+    b.addEventListener("click", () => {
+      S.category = c;
+      wrap.querySelectorAll(".cat").forEach((x) => x.classList.toggle("sel", x === b));
+    });
+    wrap.appendChild(b);
+  });
+}
+$("btn-minus").addEventListener("click", () => { if (S.n > 3)  { S.n--; buildNameInputs(); } });
+$("btn-plus").addEventListener("click",  () => { if (S.n < 10) { S.n++; buildNameInputs(); } });
+
+$("btn-play").addEventListener("click", () => { buildNameInputs(); buildCats(); show("screen-setup"); });
+
+$("btn-start").addEventListener("click", () => {
+  S.names = [...$("names").querySelectorAll("input")]
+    .map((el, i) => (el.value.trim() || "Player " + (i + 1)).slice(0, 14));
+  S.scores = new Array(S.n).fill(0);
+  S.round = 0;
+  startRound();
+});
+
+/* ================= round lifecycle ================= */
+function startRound() {
+  S.round++;
+  const catName = (S.category === "🎲 Random")
+    ? CAT_NAMES[Math.floor(Math.random() * CAT_NAMES.length)]
+    : S.category;
+  S.roundCat = catName;
+  const words = CATEGORIES[catName];
+  S.word = words[Math.floor(Math.random() * words.length)];
+  S.imposter = Math.floor(Math.random() * S.n);
+  S.revealIdx = 0;
+  S.votes = new Array(S.n).fill(-1);
+  showPass();
+}
+function showPass() {
+  $("pass-name").textContent = playerName(S.revealIdx);
+  $("pass-name2").textContent = playerName(S.revealIdx);
+  show("screen-pass");
+}
+$("btn-imhere").addEventListener("click", () => {
+  $("reveal-who").textContent = playerName(S.revealIdx) + "'s secret card";
+  prepareCard(S.revealIdx);
+  $("btn-gotit").disabled = true;
+  show("screen-reveal");
+});
+
+/* ================= hold-to-reveal card ================= */
+const card = $("card");
+const HOLD_MS = 450;
+let holdTimer = null, holdStart = 0, holdRAF = 0, seen = false;
+
+function prepareCard(idx) {
+  seen = false;
+  card.classList.remove("revealed", "holding");
+  $("holdfill").style.width = "0%";
+  const isImp = idx === S.imposter;
+  const front = $("card-front");
+  front.classList.toggle("imposter", isImp);
+  const badge = $("front-badge");
+  const url = isImp ? artURL.imposter : artURL.crew;
+  if (url) { badge.src = url; badge.style.display = ""; }
+  else { badge.removeAttribute("src"); badge.style.display = "none"; }
+  $("front-word").textContent = isImp ? "IMPOSTER" : S.word;
+  $("front-sub").textContent = isImp
+    ? "You don't know the word. Bluff a clue and blend in!"
+    : "Category: " + S.roundCat + " — give a clue, don't say the word!";
+}
+function holdTick() {
+  const p = Math.min(1, (performance.now() - holdStart) / HOLD_MS);
+  $("holdfill").style.width = (p * 100) + "%";
+  if (p < 1) holdRAF = requestAnimationFrame(holdTick);
+}
+function startHold(e) {
+  e.preventDefault();
+  if (card.classList.contains("revealed")) return;
+  card.classList.add("holding");
+  holdStart = performance.now();
+  cancelAnimationFrame(holdRAF);
+  holdRAF = requestAnimationFrame(holdTick);
+  clearTimeout(holdTimer);
+  holdTimer = setTimeout(() => {
+    card.classList.add("revealed");
+    seen = true;
+  }, HOLD_MS);
+}
+function endHold() {
+  clearTimeout(holdTimer);
+  cancelAnimationFrame(holdRAF);
+  card.classList.remove("holding", "revealed");
+  $("holdfill").style.width = "0%";
+  if (seen) $("btn-gotit").disabled = false;
+}
+card.addEventListener("pointerdown", startHold);
+card.addEventListener("pointerup", endHold);
+card.addEventListener("pointercancel", endHold);
+card.addEventListener("pointerleave", endHold);
+card.addEventListener("contextmenu", (e) => e.preventDefault());
+
+$("btn-gotit").addEventListener("click", () => {
+  S.revealIdx++;
+  if (S.revealIdx < S.n) showPass();
+  else showDiscussion();
+});
+
+/* ================= discussion ================= */
+function showDiscussion() {
+  $("discuss-cat").textContent = S.roundCat;
+  const order = shuffled([...Array(S.n).keys()]);
+  const wrap = $("orderlist");
+  wrap.innerHTML = "";
+  order.forEach((p, i) => {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = '<span class="num">' + (i + 1) + "</span>" + esc(playerName(p));
+    wrap.appendChild(row);
+  });
+  show("screen-discuss");
+}
+$("btn-vote").addEventListener("click", () => {
+  S.voteOrder = shuffled([...Array(S.n).keys()]);
+  S.voteIdx = 0;
+  showVotePass();
+});
+
+/* ================= voting ================= */
+function showVotePass() {
+  const who = S.voteOrder[S.voteIdx];
+  $("votepass-name").textContent = playerName(who);
+  $("votepass-name2").textContent = playerName(who);
+  show("screen-votepass");
+}
+$("btn-imvoter").addEventListener("click", () => {
+  const voter = S.voteOrder[S.voteIdx];
+  $("vote-who").textContent = playerName(voter);
+  const wrap = $("votebtns");
+  wrap.innerHTML = "";
+  let locked = false;
+  for (let i = 0; i < S.n; i++) {
+    const b = document.createElement("button");
+    b.className = "votebtn";
+    b.textContent = playerName(i);
+    if (i === voter) { b.disabled = true; b.textContent += " (you)"; }
+    b.addEventListener("click", () => {
+      if (locked) return;
+      locked = true;
+      b.classList.add("picked");
+      S.votes[voter] = i;
+      setTimeout(() => {
+        S.voteIdx++;
+        if (S.voteIdx < S.n) showVotePass();
+        else showResult();
+      }, 350);
+    });
+    wrap.appendChild(b);
+  }
+  show("screen-vote");
+});
+
+/* ================= result ================= */
+function spawnConfetti(colors) {
+  for (let i = 0; i < 36; i++) {
+    const el = document.createElement("div");
+    el.className = "confetti";
+    el.style.background = colors[i % colors.length];
+    el.style.left = (5 + Math.random() * 90) + "vw";
+    el.style.top = "-20px";
+    const fall = 2400 + Math.random() * 1800;
+    const spin = 360 + Math.random() * 720;
+    el.animate(
+      [
+        { transform: "translateY(0) rotate(0deg)", opacity: 1 },
+        { transform: "translateY(105vh) rotate(" + spin + "deg)", opacity: 0.9 }
+      ],
+      { duration: fall, easing: "cubic-bezier(.3,.4,.6,1)", delay: Math.random() * 500 }
+    ).onfinish = () => el.remove();
+    document.body.appendChild(el);
+  }
+}
+function showResult() {
+  const res = resolveRound(S.votes, S.n, S.imposter);
+  const oldScores = S.scores;
+  S.scores = applyScores(S.scores, S.imposter, res.crewWins);
+
+  $("result-banner").textContent = res.crewWins ? "IMPOSTER CAUGHT!" : "IMPOSTER ESCAPED!";
+  $("result-banner").style.color = res.crewWins ? "#7dffa9" : "#ff5470";
+
+  const badge = $("result-badge");
+  const url = res.crewWins ? artURL.crew : artURL.imposter;
+  if (url) { badge.src = url; badge.style.display = ""; }
+  else { badge.removeAttribute("src"); badge.style.display = "none"; }
+
+  $("result-text").innerHTML =
+    "The imposter was <b style='color:#ffc93c;'>" + esc(playerName(S.imposter)) + "</b>.<br>" +
+    "The word was <b style='color:#ffc93c;'>" + esc(S.word) + "</b>." +
+    (res.crewWins ? "<br>Crew gets +2 each!" : (res.top.length > 1 ? "<br>Tied vote — the imposter slips away with +3!" : "<br>Wrong guess — imposter takes +3!"));
+
+  // vote tally bars
+  const maxV = Math.max(1, ...res.tally);
+  const bars = $("tallybars");
+  bars.innerHTML = "";
+  for (let i = 0; i < S.n; i++) {
+    const row = document.createElement("div");
+    row.className = "tallyrow";
+    row.innerHTML =
+      '<span class="nm">' + esc(playerName(i)) + "</span>" +
+      '<div class="bar' + (i === S.imposter ? " imp" : "") + '" style="width:0%"></div>' +
+      '<span class="ct">' + res.tally[i] + "</span>";
+    bars.appendChild(row);
+    const bar = row.querySelector(".bar");
+    requestAnimationFrame(() => { bar.style.width = (res.tally[i] / maxV * 62) + "%"; });
+  }
+
+  // scoreboard (sorted desc)
+  $("round-label").textContent = S.round;
+  const order = [...Array(S.n).keys()].sort((a, b) => S.scores[b] - S.scores[a]);
+  const list = $("scorelist");
+  list.innerHTML = "";
+  order.forEach((i) => {
+    const d = S.scores[i] - oldScores[i];
+    const row = document.createElement("div");
+    row.className = "scorerow";
+    row.innerHTML =
+      "<span>" + esc(playerName(i)) + (i === S.imposter ? " 🕵️" : "") + "</span>" +
+      "<span>" + S.scores[i] + (d > 0 ? '<span class="delta">+' + d + "</span>" : "") + "</span>";
+    list.appendChild(row);
+  });
+
+  spawnConfetti(res.crewWins ? ["#7dffa9", "#ffc93c", "#4dd6ff", "#fff"] : ["#ff5470", "#b31d3f", "#ffc93c"]);
+  show("screen-result");
+}
+$("btn-nextround").addEventListener("click", startRound);
+$("btn-newgame").addEventListener("click", () => {
+  buildNameInputs(); buildCats(); show("screen-setup");
+});
+
+/* ================= boot ================= */
+artReady.then(() => {
+  if (artURL.bg) {
+    $("bg").style.backgroundImage = "url('" + ASSETS.bg.src + "')";
+  }
+  const back = $("card-backface");
+  if (artURL.cardBack) {
+    const im = new Image();
+    im.src = artURL.cardBack;
+    im.alt = "";
+    back.appendChild(im);
+  } else {
+    back.innerHTML = '<div class="fallback-q">?</div>';
+  }
+});
+document.addEventListener("gesturestart", (e) => e.preventDefault());
+</script>
+</body>
+</html>

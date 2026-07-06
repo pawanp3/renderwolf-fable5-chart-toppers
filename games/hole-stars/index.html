@@ -1,0 +1,488 @@
+<!-- Inspired by "Hole Stars: Puzzle Game" (App Store charts) — working title: Star Gulp -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Star Gulp</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; overflow:hidden; background:#0e2a33; }
+  body { display:flex; align-items:center; justify-content:center;
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; }
+  #wrap { position:relative; touch-action:none; }
+  #cv { display:block; width:100%; height:100%; }
+
+  /* HUD */
+  #hud { position:absolute; left:0; top:0; width:100%; padding:12px 14px 0;
+         display:flex; justify-content:space-between; align-items:flex-start;
+         pointer-events:none; user-select:none; -webkit-user-select:none; }
+  .pill { background:rgba(8,40,48,.78); border-radius:999px; padding:8px 16px;
+          color:#fff; font-weight:800; font-size:18px; line-height:1;
+          box-shadow:0 3px 10px rgba(0,0,0,.25); white-space:nowrap; }
+  #timerPill { font-size:24px; padding:10px 20px; min-width:96px; text-align:center;
+               font-variant-numeric:tabular-nums; }
+  #timerPill.hurry { color:#ff5a5a; animation:hurry .5s ease-in-out infinite alternate; }
+  @keyframes hurry { from{transform:scale(1)} to{transform:scale(1.12)} }
+  .sub { font-size:12px; font-weight:700; opacity:.75; display:block; margin-top:3px; }
+
+  /* Screens */
+  .scr { position:absolute; inset:0; display:flex; flex-direction:column;
+         align-items:center; justify-content:center; text-align:center;
+         background:rgba(7,28,36,.82); backdrop-filter:blur(4px);
+         user-select:none; -webkit-user-select:none; z-index:5; }
+  .scr.hidden { display:none; }
+  .scr img.icon { width:120px; height:120px; border-radius:28px;
+                  box-shadow:0 10px 30px rgba(0,0,0,.45); margin-bottom:18px; }
+  .scr h1 { color:#fff; font-size:44px; letter-spacing:1px; margin-bottom:8px;
+            text-shadow:0 3px 0 rgba(0,0,0,.35); }
+  .scr h2 { color:#fff; font-size:38px; margin-bottom:6px; text-shadow:0 3px 0 rgba(0,0,0,.35); }
+  .scr p  { color:#cdeef5; font-size:17px; font-weight:600; margin-bottom:24px;
+            max-width:280px; line-height:1.45; }
+  .big  { color:#ffd94d !important; font-size:26px !important; font-weight:900 !important;
+          margin-bottom:16px !important; }
+  .btn { pointer-events:auto; border:none; cursor:pointer; color:#3a1d00;
+         background:linear-gradient(180deg,#ffd94d,#ffb02e); font-weight:900;
+         font-size:22px; padding:16px 52px; border-radius:999px;
+         box-shadow:0 6px 0 #c77a00, 0 12px 24px rgba(0,0,0,.35);
+         animation:pulse 1.2s ease-in-out infinite; }
+  .btn:active { transform:translateY(4px); box-shadow:0 2px 0 #c77a00; }
+  @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.06)} }
+</style>
+</head>
+<body>
+<a id="arcadeBack" href="../../" aria-label="Back to arcade" style="position:fixed;top:calc(8px + env(safe-area-inset-top));left:calc(8px + env(safe-area-inset-left));z-index:99999;display:flex;align-items:center;gap:4px;height:32px;padding:0 12px 0 8px;border-radius:999px;background:rgba(8,12,26,.62);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.18);color:#fff;font:800 12.5px -apple-system,BlinkMacSystemFont,sans-serif;text-decoration:none;-webkit-tap-highlight-color:transparent;">‹ Arcade</a>
+<div id="wrap">
+  <canvas id="cv"></canvas>
+  <div id="hud">
+    <div class="pill">⭐ <span id="leftTxt">25</span><span class="sub">LEFT</span></div>
+    <div class="pill" id="timerPill">60</div>
+    <div class="pill"><span id="scoreTxt">0</span><span class="sub">SCORE</span></div>
+  </div>
+  <div class="scr" id="startScr">
+    <img class="icon" id="startIcon" src="assets/icon.png" alt="">
+    <h1>STAR GULP</h1>
+    <p>Drag the hole to swallow everything!<br>Eat small stuff to grow big enough<br>for the rest — beat the clock!</p>
+    <button class="btn" id="startBtn">PLAY</button>
+  </div>
+  <div class="scr hidden" id="endScr">
+    <h2 id="endTitle">BOARD CLEARED!</h2>
+    <p id="endMsg" class="big"></p>
+    <p id="endSub"></p>
+    <button class="btn" id="againBtn">PLAY AGAIN</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ============================ constants ============================ */
+const W = 540, H = 960;                       // world units (portrait 9:16)
+const TIERS = [
+  { r:16, grow:2.2, score:10, count:14 },
+  { r:30, grow:3.5, score:25, count:7  },
+  { r:48, grow:5.0, score:50, count:4  }
+];
+const TOTAL_OBJS = 25;
+const HOLE_START_R = 26;
+const BOARD = { x0:52, x1:488, y0:170, y1:898 };
+const HOLE_HOME = { x:270, y:780 };
+const SEED = 20260705;
+const TIME_LIMIT = 60;
+const TIER_COLORS = [['#ffd94d','#ffb02e'], ['#ff8a65','#ff6f43'], ['#b39ddb','#8e6fd0']];
+
+/* ============================ pure logic ============================ */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+function canEat(objR, holeR, dist){ return objR < holeR && dist < holeR*0.8; }
+
+function buildLevel(seed){
+  const rng = mulberry32(seed);
+  const objs = [];
+  const order = [2,2,2,2, 1,1,1,1,1,1,1, 0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+  for (let k=0; k<order.length; k++){
+    const t = order[k], r = TIERS[t].r;
+    let placed = false;
+    for (let tries=0; tries<800 && !placed; tries++){
+      const x = BOARD.x0 + r + rng()*((BOARD.x1-BOARD.x0) - 2*r);
+      const y = BOARD.y0 + r + rng()*((BOARD.y1-BOARD.y0) - 2*r);
+      let ok = true;
+      for (let i=0; i<objs.length; i++){
+        const dx = objs[i].x-x, dy = objs[i].y-y, rr = objs[i].r+r+10;
+        if (dx*dx+dy*dy < rr*rr){ ok = false; break; }
+      }
+      const hx = x-HOLE_HOME.x, hy = y-HOLE_HOME.y, hr = r+HOLE_START_R+34;
+      if (hx*hx+hy*hy < hr*hr) ok = false;
+      if (ok){
+        objs.push({ x, y, r, tier:t, cell:k%4, phase:rng()*6.283,
+                    state:0, t:0, ang:0, sx:0, sy:0, sd:0 }); // state 0=idle 1=swallowing 2=gone
+        placed = true;
+      }
+    }
+    if (!placed){ // extremely unlikely with fixed seed (verified); nudge seed as safety
+      return buildLevel(seed+1);
+    }
+  }
+  return objs;
+}
+
+/* ============================ assets ============================ */
+const ASSETS = { bg:'assets/bg-board.png', hole:'assets/hole.png',
+                 propsS:'assets/props-small.png', propsL:'assets/props-large.png' };
+const img = {};       // name -> canvas/img or null if failed
+
+function keyMagenta(image){
+  const c = document.createElement('canvas');
+  c.width = image.naturalWidth; c.height = image.naturalHeight;
+  const g = c.getContext('2d');
+  g.drawImage(image, 0, 0);
+  try {
+    const d = g.getImageData(0, 0, c.width, c.height), p = d.data;
+    for (let i=0; i<p.length; i+=4){
+      if (p[i] > 200 && p[i+2] > 200 && p[i+1] < 120) p[i+3] = 0;
+    }
+    g.putImageData(d, 0, 0);
+  } catch(e){ /* keep unkeyed rather than crash */ }
+  return c;
+}
+
+function loadAll(){
+  const jobs = Object.keys(ASSETS).map(name => new Promise(res => {
+    const im = new Image();
+    im.onload  = () => { img[name] = (name === 'bg') ? im : keyMagenta(im); res(); };
+    im.onerror = () => { img[name] = null; res(); };
+    im.src = ASSETS[name];
+  }));
+  return Promise.all(jobs);
+}
+
+/* ============================ canvas ============================ */
+const wrap = document.getElementById('wrap');
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let scale = 1;
+
+function resize(){
+  const vw = window.innerWidth, vh = window.innerHeight;
+  scale = Math.min(vw/W, vh/H);
+  const cw = Math.round(W*scale), ch = Math.round(H*scale);
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  wrap.style.width = cw+'px'; wrap.style.height = ch+'px';
+  cv.width = Math.round(cw*dpr); cv.height = Math.round(ch*dpr);
+  ctx.setTransform(cw*dpr/W, 0, 0, ch*dpr/H, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ============================ state ============================ */
+const hud = {
+  left:  document.getElementById('leftTxt'),
+  timer: document.getElementById('timerPill'),
+  score: document.getElementById('scoreTxt')
+};
+const startScr = document.getElementById('startScr');
+const endScr   = document.getElementById('endScr');
+
+let mode = 'title';            // title | play | over
+let objs = [];
+let hole = { x:HOLE_HOME.x, y:HOLE_HOME.y, r:HOLE_START_R, tx:HOLE_HOME.x, ty:HOLE_HOME.y,
+             spin:0, pulse:0 };
+let timeLeft = TIME_LIMIT, score = 0, eaten = 0, endDelay = 0;
+const particles = [], floaters = [];
+let shownTimer = '', shownScore = -1, shownLeft = -1;
+
+function resetGame(){
+  objs = buildLevel(SEED);
+  hole.x = hole.tx = HOLE_HOME.x; hole.y = hole.ty = HOLE_HOME.y;
+  hole.r = HOLE_START_R; hole.spin = 0; hole.pulse = 0;
+  timeLeft = TIME_LIMIT; score = 0; eaten = 0; endDelay = 0;
+  particles.length = 0; floaters.length = 0;
+  shownTimer = ''; shownScore = -1; shownLeft = -1;
+  hud.timer.classList.remove('hurry');
+}
+
+/* ============================ input ============================ */
+let dragging = false, fingerX = 0, fingerY = 0, holeSX = 0, holeSY = 0;
+
+function toWorld(e){
+  const rc = wrap.getBoundingClientRect();
+  return [ (e.clientX-rc.left)/scale, (e.clientY-rc.top)/scale ];
+}
+wrap.addEventListener('pointerdown', e => {
+  if (mode !== 'play') return;
+  e.preventDefault();
+  wrap.setPointerCapture(e.pointerId);
+  dragging = true;
+  [fingerX, fingerY] = toWorld(e);
+  holeSX = hole.x; holeSY = hole.y;
+});
+wrap.addEventListener('pointermove', e => {
+  if (!dragging || mode !== 'play') return;
+  e.preventDefault();
+  const [wx, wy] = toWorld(e);
+  hole.tx = holeSX + (wx - fingerX);      // indirect drag: finger never covers hole
+  hole.ty = holeSY + (wy - fingerY);
+});
+function endDrag(){ dragging = false; }
+wrap.addEventListener('pointerup', endDrag);
+wrap.addEventListener('pointercancel', endDrag);
+
+/* ============================ juice ============================ */
+function burst(x, y, tier){
+  const col = TIER_COLORS[tier];
+  const n = 6 + tier*3;
+  for (let i=0; i<n; i++){
+    const a = Math.random()*6.283, sp = 90 + Math.random()*160;
+    particles.push({ x, y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp,
+                     life:.45+Math.random()*.25, t:0,
+                     r:3+Math.random()*4, col:col[i%2] });
+  }
+}
+function floatText(x, y, txt, col){
+  floaters.push({ x, y, txt, col, t:0, life:.8 });
+}
+
+/* ============================ update ============================ */
+function startSwallow(o){
+  o.state = 1; o.t = 0;
+  const dx = o.x-hole.x, dy = o.y-hole.y;
+  o.ang = Math.atan2(dy, dx);
+  o.sd = Math.sqrt(dx*dx+dy*dy);
+  o.sr = o.r;
+  eaten++;
+  score += TIERS[o.tier].score;
+  hole.r += TIERS[o.tier].grow;
+  hole.pulse = 1;
+  burst(o.x, o.y, o.tier);
+  floatText(o.x, o.y - o.r - 6, '+'+TIERS[o.tier].score, TIER_COLORS[o.tier][0]);
+}
+
+function update(dt){
+  hole.spin += dt*1.1;
+  if (hole.pulse > 0) hole.pulse = Math.max(0, hole.pulse - dt*4);
+
+  if (mode === 'play'){
+    // move hole (eased, clamped to board)
+    hole.tx = Math.max(BOARD.x0, Math.min(BOARD.x1, hole.tx));
+    hole.ty = Math.max(BOARD.y0, Math.min(BOARD.y1, hole.ty));
+    const k = Math.min(1, dt*11);
+    hole.x += (hole.tx-hole.x)*k;
+    hole.y += (hole.ty-hole.y)*k;
+
+    // timer
+    timeLeft -= dt;
+    if (timeLeft <= 0){ timeLeft = 0; gameOver(false); }
+    else if (timeLeft < 10) hud.timer.classList.add('hurry');
+
+    // eating
+    for (let i=0; i<objs.length; i++){
+      const o = objs[i];
+      if (o.state === 0){
+        const dx = o.x-hole.x, dy = o.y-hole.y;
+        if (canEat(o.r, hole.r, Math.sqrt(dx*dx+dy*dy))) startSwallow(o);
+      }
+    }
+    if (eaten === TOTAL_OBJS){
+      endDelay += dt;
+      if (endDelay > 0.55) gameOver(true);
+    }
+  }
+
+  // swallow animation (runs even during the brief end delay)
+  for (let i=0; i<objs.length; i++){
+    const o = objs[i];
+    if (o.state === 1){
+      o.t += dt/0.38;
+      if (o.t >= 1){ o.state = 2; continue; }
+      const p = o.t;
+      o.ang += dt*9;
+      const d = o.sd*(1-p)*(1-p);
+      o.x = hole.x + Math.cos(o.ang)*d;
+      o.y = hole.y + Math.sin(o.ang)*d;
+      o.r = o.sr*(1-p*0.85);
+    }
+  }
+
+  // particles / floaters
+  for (let i=particles.length-1; i>=0; i--){
+    const p = particles[i];
+    p.t += dt;
+    if (p.t >= p.life){ particles.splice(i,1); continue; }
+    p.x += p.vx*dt; p.y += p.vy*dt;
+    p.vx *= (1-dt*2.5); p.vy *= (1-dt*2.5);
+  }
+  for (let i=floaters.length-1; i>=0; i--){
+    const f = floaters[i];
+    f.t += dt;
+    if (f.t >= f.life){ floaters.splice(i,1); continue; }
+    f.y -= 55*dt;
+  }
+}
+
+function gameOver(won){
+  if (mode !== 'play') return;
+  mode = 'over';
+  dragging = false;
+  document.getElementById('endTitle').textContent = won ? 'BOARD CLEARED!' : "TIME'S UP!";
+  document.getElementById('endMsg').textContent = 'Score: ' + score;
+  document.getElementById('endSub').textContent = won
+    ? 'You gulped all ' + TOTAL_OBJS + ' with ' + Math.ceil(timeLeft) + 's to spare!'
+    : 'Swallowed ' + eaten + ' of ' + TOTAL_OBJS + '. So close — go again!';
+  setTimeout(() => endScr.classList.remove('hidden'), 350);
+}
+
+/* ============================ draw ============================ */
+function roundRect(g, x, y, w, h, r){
+  g.beginPath();
+  g.moveTo(x+r, y);
+  g.arcTo(x+w, y, x+w, y+h, r); g.arcTo(x+w, y+h, x, y+h, r);
+  g.arcTo(x, y+h, x, y, r);     g.arcTo(x, y, x+w, y, r);
+  g.closePath();
+}
+
+function drawStar(g, x, y, r, col){
+  g.beginPath();
+  for (let i=0; i<10; i++){
+    const a = -Math.PI/2 + i*Math.PI/5, rr = (i%2===0) ? r : r*0.45;
+    if (i===0) g.moveTo(x+Math.cos(a)*rr, y+Math.sin(a)*rr);
+    else g.lineTo(x+Math.cos(a)*rr, y+Math.sin(a)*rr);
+  }
+  g.closePath(); g.fillStyle = col; g.fill();
+}
+
+function drawBG(){
+  if (img.bg){ ctx.drawImage(img.bg, 0, 0, W, H); }
+  else {
+    ctx.fillStyle = '#2fb7b0'; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 6;
+    roundRect(ctx, 24, 24, W-48, H-48, 30); ctx.stroke();
+  }
+}
+
+function drawObj(o, now){
+  if (o.state === 2) return;
+  const tooBig = o.r >= hole.r;
+  // proximity wobble for objects the hole can't eat yet
+  let wob = 0;
+  if (o.state === 0 && tooBig){
+    const dx = o.x-hole.x, dy = o.y-hole.y;
+    const d = Math.sqrt(dx*dx+dy*dy);
+    if (d < hole.r + o.r + 14) wob = Math.sin(now*22 + o.phase)*0.06;
+  }
+  const bob = 1 + Math.sin(now*2 + o.phase)*0.025 + wob;
+  const size = o.r*2*1.35*bob;
+  // shadow
+  if (o.state === 0){
+    ctx.fillStyle = 'rgba(10,45,55,.18)';
+    ctx.beginPath();
+    ctx.ellipse(o.x, o.y + o.r*0.55, o.r*0.95, o.r*0.42, 0, 0, 6.283);
+    ctx.fill();
+  }
+  const sheet = (o.tier === 0) ? img.propsS : img.propsL;
+  if (sheet){
+    const cw = sheet.width/2, chh = sheet.height/2;
+    const sx = (o.cell%2)*cw, sy = (o.cell>>1)*chh;
+    if (o.state === 1){
+      ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(o.ang*0.5);
+      ctx.drawImage(sheet, sx, sy, cw, chh, -size/2, -size/2, size, size);
+      ctx.restore();
+    } else {
+      ctx.drawImage(sheet, sx, sy, cw, chh, o.x-size/2, o.y-size/2, size, size);
+    }
+  } else {
+    const col = TIER_COLORS[o.tier];
+    ctx.fillStyle = col[1];
+    ctx.beginPath(); ctx.arc(o.x, o.y, o.r*bob, 0, 6.283); ctx.fill();
+    drawStar(ctx, o.x, o.y, o.r*0.7*bob, col[0]);
+  }
+}
+
+function drawHole(){
+  const s = 1 + hole.pulse*0.22;
+  if (img.hole){
+    const size = (hole.r*2/0.62)*s;   // hole disc spans ~62% of the sprite
+    ctx.save();
+    ctx.translate(hole.x, hole.y);
+    ctx.rotate(hole.spin);
+    ctx.drawImage(img.hole, -size/2, -size/2, size, size);
+    ctx.restore();
+  } else {
+    const r = hole.r*s;
+    const g = ctx.createRadialGradient(hole.x, hole.y, r*0.1, hole.x, hole.y, r);
+    g.addColorStop(0, '#000'); g.addColorStop(.75, '#1a0a30'); g.addColorStop(1, '#2b1050');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(hole.x, hole.y, r, 0, 6.283); ctx.fill();
+    ctx.strokeStyle = '#3ee6ff'; ctx.lineWidth = 3.5;
+    ctx.beginPath(); ctx.arc(hole.x, hole.y, r, 0, 6.283); ctx.stroke();
+  }
+}
+
+function draw(now){
+  drawBG();
+  // swallowing objects render above idle ones but below the hole? They spiral INTO
+  // the hole, so draw idle first, then hole, then swallowing on top shrinking in.
+  for (let i=0; i<objs.length; i++) if (objs[i].state === 0) drawObj(objs[i], now);
+  drawHole();
+  for (let i=0; i<objs.length; i++) if (objs[i].state === 1) drawObj(objs[i], now);
+
+  for (let i=0; i<particles.length; i++){
+    const p = particles[i], a = 1 - p.t/p.life;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = p.col;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r*a, 0, 6.283); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.textAlign = 'center';
+  ctx.font = '900 26px -apple-system, Arial, sans-serif';
+  for (let i=0; i<floaters.length; i++){
+    const f = floaters[i], a = 1 - f.t/f.life;
+    ctx.globalAlpha = a;
+    ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(20,30,40,.8)';
+    ctx.strokeText(f.txt, f.x, f.y);
+    ctx.fillStyle = f.col;
+    ctx.fillText(f.txt, f.x, f.y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ============================ HUD ============================ */
+function syncHUD(){
+  const left = TOTAL_OBJS - eaten;
+  if (left !== shownLeft){ shownLeft = left; hud.left.textContent = left; }
+  if (score !== shownScore){ shownScore = score; hud.score.textContent = score; }
+  const t = (timeLeft < 10) ? timeLeft.toFixed(1) : String(Math.ceil(timeLeft));
+  if (t !== shownTimer){ shownTimer = t; hud.timer.textContent = t; }
+}
+
+/* ============================ main loop ============================ */
+let last = 0;
+function frame(ts){
+  const now = ts/1000;
+  let dt = now - last; last = now;
+  if (dt > 0.05) dt = 0.05;         // clamp after tab-switch
+  update(dt);
+  draw(now);
+  syncHUD();
+  requestAnimationFrame(frame);
+}
+
+/* ============================ boot ============================ */
+document.getElementById('startBtn').addEventListener('click', () => {
+  resetGame();
+  startScr.classList.add('hidden');
+  mode = 'play';
+});
+document.getElementById('againBtn').addEventListener('click', () => {
+  resetGame();
+  endScr.classList.add('hidden');
+  mode = 'play';
+});
+document.getElementById('startIcon').addEventListener('error', function(){ this.style.display='none'; });
+
+loadAll().then(() => {
+  resetGame();
+  requestAnimationFrame(ts => { last = ts/1000; requestAnimationFrame(frame); });
+});
+</script>
+</body>
+</html>
