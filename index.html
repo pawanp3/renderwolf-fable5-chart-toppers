@@ -44,12 +44,13 @@
   .rw-credit:active { transform:scale(.96); }
   @media (hover:hover){ .rw-credit:hover { border-color:rgba(56,230,160,.55); } }
   .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:14px; }
-  a.card { display:flex; flex-direction:column; text-decoration:none; color:inherit;
+  .card { display:flex; flex-direction:column;
     background:linear-gradient(180deg,var(--card2),var(--card)); border:1px solid var(--line);
     border-radius:20px; overflow:hidden; transition:transform .12s ease, border-color .12s ease, box-shadow .12s ease; }
-  a.card:active { transform:scale(.96); }
-  @media (hover:hover){ a.card:hover { transform:translateY(-3px); border-color:rgba(91,140,255,.55);
+  .card:active { transform:scale(.96); }
+  @media (hover:hover){ .card:hover { transform:translateY(-3px); border-color:rgba(91,140,255,.55);
     box-shadow:0 10px 30px rgba(0,0,0,.45); } }
+  a.cardlink { display:flex; flex-direction:column; text-decoration:none; color:inherit; }
   .thumb { position:relative; aspect-ratio:1/1; background:#0e1428; overflow:hidden; }
   .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
   .thumb .badge { position:absolute; top:8px; left:8px; font-size:10px; font-weight:800; letter-spacing:.4px;
@@ -60,6 +61,11 @@
   .desc { font-size:12px; color:var(--dim); margin-top:4px; line-height:1.35; }
   .play { display:inline-flex; align-items:center; gap:5px; margin-top:9px; font-size:12px;
     font-weight:800; color:var(--accent); }
+  .src { display:block; padding:9px 12px 12px; border-top:1px solid var(--line);
+    font-size:11px; color:var(--dim); text-decoration:none; line-height:1.35; }
+  .src b { color:var(--accent2); font-weight:700; }
+  .src .arw { opacity:.7; }
+  @media (hover:hover){ .src:hover b { text-decoration:underline; text-underline-offset:2px; } }
   footer { text-align:center; color:var(--dim); font-size:12px; margin-top:38px; line-height:1.7; }
   .qr { display:inline-flex; align-items:center; gap:14px; text-align:left; background:var(--card);
     border:1px solid var(--line); border-radius:16px; padding:14px 18px 14px 14px; margin-bottom:20px; }
@@ -90,35 +96,39 @@
   </footer>
 </div>
 <script>
+// [slug, remake name, remake blurb, original game, App Store URL]
 const GAMES = [
-  ["meowdoku","Purrfect Logic","Sudoku, but with cats"],
-  ["block-blast","Combo Grid","Drop blocks, clear lines for combos"],
-  ["smash-fest","Carnival Cannon Crush","Fire the cannon, smash it all"],
-  ["block-out","Slide & Exit","Slide blocks out to sort the colors"],
-  ["disney-solitaire","Starlight Peaks","Tri-peaks solitaire, chained runs"],
-  ["hole-stars","Star Gulp","Grow a hole and swallow the city"],
-  ["arrows-puzzle-escape","Vector Vacate","Slide the arrows off the board"],
-  ["draft-legends","Perfect Season Draft","Draft the perfect lineup, pick by pick"],
-  ["imposter-party","Bluff Circle","Spot the imposter before time runs out"],
-  ["amaze-go","Drift Away Arrows","Trace one line, paint every tile"],
-  ["ea-fc-mobile","Sudden Death Strikers","Penalty shootout under the lights"],
-  ["kingshot","Last Keep","Aim, fire, defend the keep"],
-  ["gossip-harbor","Seaside Scoop","Merge items to rebuild the harbor"],
-  ["fortnite","Circle Down","Survive the shrinking circle"],
-  ["roblox","Blocky Obby Dash","Dash the blocky obstacle course"],
+  ["meowdoku","Purrfect Logic","Sudoku, but with cats","Meowdoku!","https://apps.apple.com/us/app/meowdoku/id6761760135"],
+  ["block-blast","Combo Grid","Drop blocks, clear lines for combos","Block Blast!","https://apps.apple.com/us/app/block-blast/id1617391485"],
+  ["smash-fest","Carnival Cannon Crush","Fire the cannon, smash it all","Smash Fest!","https://apps.apple.com/us/app/smash-fest/id6748084174"],
+  ["block-out","Slide & Exit","Slide blocks out to sort the colors","Block Out! Color Sort","https://apps.apple.com/us/app/block-out-color-sort-puzzle/id6752672568"],
+  ["disney-solitaire","Starlight Peaks","Tri-peaks solitaire, chained runs","Disney Solitaire","https://apps.apple.com/us/app/disney-solitaire/id6475757306"],
+  ["hole-stars","Star Gulp","Grow a hole and swallow the city","Hole Stars","https://apps.apple.com/us/app/hole-stars-puzzle-game/id6747028173"],
+  ["arrows-puzzle-escape","Vector Vacate","Slide the arrows off the board","Arrows – Puzzle Escape","https://apps.apple.com/us/app/arrows-puzzle-escape/id6748397500"],
+  ["draft-legends","Perfect Season Draft","Draft the perfect lineup, pick by pick","82-0.com Draft Legends","https://apps.apple.com/us/app/82-0-com/id6780195090"],
+  ["imposter-party","Bluff Circle","Spot the imposter before time runs out","Imposter Game: Party Edition","https://apps.apple.com/us/app/imposter-game-party-edition/id6745120053"],
+  ["amaze-go","Drift Away Arrows","Trace one line, paint every tile","Amaze GO!","https://apps.apple.com/us/app/amaze-go/id6758326278"],
+  ["ea-fc-mobile","Sudden Death Strikers","Penalty shootout under the lights","EA SPORTS FC Mobile 26","https://apps.apple.com/us/app/ea-sports-fc-soccer-mobile-26/id1094930513"],
+  ["kingshot","Last Keep","Aim, fire, defend the keep","Kingshot","https://apps.apple.com/us/app/kingshot/id6739554056"],
+  ["gossip-harbor","Seaside Scoop","Merge items to rebuild the harbor","Gossip Harbor: Merge & Story","https://apps.apple.com/us/app/gossip-harbor-merge-story/id1623318294"],
+  ["fortnite","Circle Down","Survive the shrinking circle","Fortnite","https://apps.apple.com/us/app/fortnite/id6483539426"],
+  ["roblox","Blocky Obby Dash","Dash the blocky obstacle course","Roblox","https://apps.apple.com/us/app/roblox/id431946152"],
 ];
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const grid = document.getElementById('grid');
-for (const [slug,name,desc] of GAMES){
-  const a = document.createElement('a');
-  a.className = 'card';
-  a.href = 'games/' + slug + '/';
-  a.innerHTML =
+for (const [slug,name,desc,orig,url] of GAMES){
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML =
+    '<a class="cardlink" href="games/' + slug + '/">' +
     '<div class="thumb"><span class="badge">Play</span>' +
     '<img loading="lazy" alt="" src="games/' + slug + '/assets/icon.png"></div>' +
-    '<div class="meta"><div class="name">' + name + '</div>' +
-    '<div class="desc">' + desc + '</div>' +
-    '<div class="play">▶ Play now</div></div>';
-  grid.appendChild(a);
+    '<div class="meta"><div class="name">' + esc(name) + '</div>' +
+    '<div class="desc">' + esc(desc) + '</div>' +
+    '<div class="play">▶ Play now</div></div></a>' +
+    '<a class="src" href="' + url + '" target="_blank" rel="noopener">' +
+    'Inspired by <b>' + esc(orig) + '</b> <span class="arw">↗</span></a>';
+  grid.appendChild(card);
 }
 </script>
 </body>
